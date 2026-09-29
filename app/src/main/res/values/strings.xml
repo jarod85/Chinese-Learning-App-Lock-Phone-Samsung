@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HanziLock</string>
+    <string name="accessibility_service_label">HanziLock practice gate</string>
+    <string name="accessibility_service_description">HanziLock uses this to see which app is in front. When a Chinese practice session is due, it shows the practice screen instead of apps that are not on your allowed list (phone, alarm, calendar and the other apps you allow keep working). It does not read, store or send what is on your screen.</string>
+    <string name="notification_listener_label">HanziLock priority emails</string>
+</resources>

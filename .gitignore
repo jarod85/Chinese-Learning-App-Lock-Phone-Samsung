@@ -1,0 +1,26 @@
+# Repo-local build toolchain (JDK + Android SDK), created by tools/setup-toolchain.ps1
+.toolchain/
+
+# Gradle / Android build outputs
+.gradle/
+.kotlin/
+build/
+local.properties
+captures/
+.cxx/
+*.apk
+*.aab
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+
+# Signing key created by tools/setup-toolchain.ps1.
+# BACK IT UP: app updates must be signed with the same key, otherwise you have to
+# uninstall (and lose your progress) before installing a new build.
+keystore/
+
+# OS noise
+.DS_Store
+Thumbs.db
