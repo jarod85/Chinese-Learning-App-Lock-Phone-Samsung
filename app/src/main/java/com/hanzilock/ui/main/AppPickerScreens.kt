@@ -43,7 +43,7 @@ import kotlinx.coroutines.withContext
 
 data class InstalledApp(val packageName: String, val label: String)
 
-/** Every app with a launcher icon, sorted by name (HanziLock itself excluded). */
+/** Every app with a launcher icon, sorted by name (Lingo Lock itself excluded). */
 fun launchableApps(context: Context): List<InstalledApp> {
     val pm = context.packageManager
     val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)

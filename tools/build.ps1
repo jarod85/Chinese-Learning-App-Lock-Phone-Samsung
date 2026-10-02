@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Builds the HanziLock APK (release, signed with your personal key) and runs the unit tests.
+    Builds the Lingo Lock APK (release, signed with your personal key) and runs the unit tests.
 
 .EXAMPLE
     .\tools\build.ps1              # tests + release APK

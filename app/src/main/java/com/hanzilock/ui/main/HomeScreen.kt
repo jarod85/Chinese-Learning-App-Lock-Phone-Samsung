@@ -45,6 +45,7 @@ import com.hanzilock.ui.common.PinDialog
 import com.hanzilock.ui.common.formatTime
 import com.hanzilock.ui.theme.LossColor
 import com.hanzilock.ui.theme.WinColor
+import com.hanzilock.ui.theme.termStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -53,7 +54,7 @@ fun setupProblems(context: Context, app: HanziLockApp): List<String> = buildList
     if (!app.pin.isSet) add("Set a master PIN")
     if (!SystemAccess.accessibilityEnabled(context)) add("Turn on the practice gate (Accessibility)")
     if (!SystemAccess.micGranted(context)) add("Allow the microphone for the pronunciation check")
-    if (!SystemAccess.batteryUnrestricted(context)) add("Let HanziLock run in the background (battery)")
+    if (!SystemAccess.batteryUnrestricted(context)) add("Let Lingo Lock run in the background (battery)")
 }
 
 @Composable
@@ -66,13 +67,19 @@ fun HomeScreen(nav: Navigator) {
     val wordsVersion by app.words.changes.collectAsStateWithLifecycle()
     val status = remember(now, settingsVersion, resumed) { app.lockEngine.status() }
     val problems = remember(resumed, settingsVersion) { setupProblems(context, app) }
-    val totals by produceState<Totals?>(null, wordsVersion) { value = withContext(Dispatchers.IO) { app.words.totals() } }
-    val today by produceState<DayStat?>(null, wordsVersion) {
-        value = withContext(Dispatchers.IO) { app.words.dailyStats(1).lastOrNull() }
+    val lang = remember(settingsVersion) { app.languages.active }
+    val totals by produceState<Totals?>(null, wordsVersion, lang.code) { value = withContext(Dispatchers.IO) { app.words.totals(lang.code) } }
+    val activeSets by produceState(emptyList<String>(), wordsVersion, lang.code) {
+        value = withContext(Dispatchers.IO) { app.words.sets(lang.code).filter { it.enabled }.map { it.name } }
+    }
+    var pickLanguage by remember { mutableStateOf(false) }
+    var addLanguage by remember { mutableStateOf(false) }
+    val today by produceState<DayStat?>(null, wordsVersion, lang.code) {
+        value = withContext(Dispatchers.IO) { app.words.dailyStats(lang.code, 1).lastOrNull() }
     }
     var confirmDisable by remember { mutableStateOf(false) }
 
-    ScreenScaffold(title = "HanziLock · 汉字锁") { padding ->
+    ScreenScaffold(title = "Lingo Lock") { padding ->
         Column(
             Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -88,6 +95,21 @@ fun HomeScreen(nav: Navigator) {
                         problems.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
                         TextButton(onClick = { nav.go(Route.Setup) }) { Text("Open the setup checklist") }
                     }
+                }
+            }
+
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Learning", style = MaterialTheme.typography.labelLarge)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(lang.native, style = termStyle(26, lang.locale, FontWeight.SemiBold), modifier = Modifier.weight(1f))
+                        TextButton(onClick = { pickLanguage = true }) { Text("Change") }
+                    }
+                    Text(
+                        if (activeSets.isEmpty()) "No sets switched on yet" else activeSets.joinToString(" · "),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    TextButton(onClick = { nav.go(Route.Sets) }) { Text("Choose sets / import your own words") }
                 }
             }
 
@@ -135,7 +157,7 @@ fun HomeScreen(nav: Navigator) {
                     }
                     totals?.let {
                         Text(
-                            "${it.words} words in your list · ${it.seen} practised · ${it.streakDays}-day streak",
+                            "${it.words} words switched on · ${it.seen} practised · ${it.streakDays}-day streak",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -145,6 +167,15 @@ fun HomeScreen(nav: Navigator) {
         }
     }
 
+    if (pickLanguage) {
+        LanguageDialog(onDismiss = { pickLanguage = false }, onAdd = { pickLanguage = false; addLanguage = true })
+    }
+    if (addLanguage) {
+        AddLanguageDialog(onDismiss = { addLanguage = false }, onAdded = { msg ->
+            addLanguage = false
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        })
+    }
     if (confirmDisable) {
         PinDialog(
             title = "Turn the lock off?",

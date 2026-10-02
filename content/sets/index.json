@@ -1,0 +1,41 @@
+{
+  "languages": [
+    {"code":"zh","name":"Mandarin Chinese","native":"中文","locale":"zh-CN","script":"han","spaced":false,"reading":"pinyin"},
+    {"code":"ja","name":"Japanese","native":"日本語","locale":"ja-JP","script":"japanese","spaced":false,"reading":"kana"},
+    {"code":"ko","name":"Korean","native":"한국어","locale":"ko-KR","script":"hangul","spaced":true,"reading":"none"},
+    {"code":"es","name":"Spanish","native":"Español","locale":"es-ES","script":"latin","spaced":true,"reading":"none"},
+    {"code":"fr","name":"French","native":"Français","locale":"fr-FR","script":"latin","spaced":true,"reading":"none"},
+    {"code":"it","name":"Italian","native":"Italiano","locale":"it-IT","script":"latin","spaced":true,"reading":"none"}
+  ],
+  "sets": [
+    {"key":"es.a1","lang":"es","name":"A1","level":"Beginner","sort":1,"file":"sets/es/a1.json","count":597,"rev":"79e37795a286","source":"bannerless"},
+    {"key":"es.a2","lang":"es","name":"A2","level":"Beginner","sort":2,"file":"sets/es/a2.json","count":698,"rev":"61246b8fc0c5","source":"bannerless"},
+    {"key":"es.b1","lang":"es","name":"B1","level":"Intermediate","sort":3,"file":"sets/es/b1.json","count":699,"rev":"c40704c9b5dc","source":"bannerless"},
+    {"key":"es.b2","lang":"es","name":"B2","level":"Intermediate","sort":4,"file":"sets/es/b2.json","count":1500,"rev":"e234358fdef1","source":"ngram"},
+    {"key":"es.c1","lang":"es","name":"C1","level":"Advanced","sort":5,"file":"sets/es/c1.json","count":2000,"rev":"360f6c5150cf","source":"ngram"},
+    {"key":"fr.a1","lang":"fr","name":"A1","level":"Beginner","sort":1,"file":"sets/fr/a1.json","count":600,"rev":"536bbcc340b4","source":"ngram"},
+    {"key":"fr.a2","lang":"fr","name":"A2","level":"Beginner","sort":2,"file":"sets/fr/a2.json","count":700,"rev":"cb7874ed9441","source":"ngram"},
+    {"key":"fr.b1","lang":"fr","name":"B1","level":"Intermediate","sort":3,"file":"sets/fr/b1.json","count":700,"rev":"fa6fc29ce605","source":"ngram"},
+    {"key":"fr.b2","lang":"fr","name":"B2","level":"Intermediate","sort":4,"file":"sets/fr/b2.json","count":1500,"rev":"ab5f71ede5c6","source":"ngram"},
+    {"key":"fr.c1","lang":"fr","name":"C1","level":"Advanced","sort":5,"file":"sets/fr/c1.json","count":2000,"rev":"06a640401fc1","source":"ngram"},
+    {"key":"it.a1","lang":"it","name":"A1","level":"Beginner","sort":1,"file":"sets/it/a1.json","count":593,"rev":"ac99ebd9aae1","source":"bannerless"},
+    {"key":"it.a2","lang":"it","name":"A2","level":"Beginner","sort":2,"file":"sets/it/a2.json","count":700,"rev":"2ad9d206f9e3","source":"bannerless"},
+    {"key":"it.b1","lang":"it","name":"B1","level":"Intermediate","sort":3,"file":"sets/it/b1.json","count":700,"rev":"b2afeb4d0fdf","source":"bannerless"},
+    {"key":"it.b2","lang":"it","name":"B2","level":"Intermediate","sort":4,"file":"sets/it/b2.json","count":1500,"rev":"7d37ef705c6d","source":"ngram"},
+    {"key":"it.c1","lang":"it","name":"C1","level":"Advanced","sort":5,"file":"sets/it/c1.json","count":2000,"rev":"b7e7df0a2e9e","source":"ngram"},
+    {"key":"ja.jlpt-n5","lang":"ja","name":"JLPT N5","level":"Beginner","sort":1,"file":"sets/ja/jlpt-n5.json","count":662,"rev":"54df432ea253","source":"jlpt"},
+    {"key":"ja.jlpt-n4","lang":"ja","name":"JLPT N4","level":"Beginner","sort":2,"file":"sets/ja/jlpt-n4.json","count":630,"rev":"b10f343ad91a","source":"jlpt"},
+    {"key":"ja.jlpt-n3","lang":"ja","name":"JLPT N3","level":"Intermediate","sort":3,"file":"sets/ja/jlpt-n3.json","count":1709,"rev":"940b0d7b0471","source":"jlpt"},
+    {"key":"ja.jlpt-n2","lang":"ja","name":"JLPT N2","level":"Advanced","sort":4,"file":"sets/ja/jlpt-n2.json","count":1785,"rev":"08ddbe04a00b","source":"jlpt"},
+    {"key":"ja.jlpt-n1","lang":"ja","name":"JLPT N1","level":"Advanced","sort":5,"file":"sets/ja/jlpt-n1.json","count":3303,"rev":"7e7e47a81da5","source":"jlpt"},
+    {"key":"ko.a1","lang":"ko","name":"A1","level":"Beginner","sort":1,"file":"sets/ko/a1.json","count":593,"rev":"45a4fff1b847","source":"bannerless"},
+    {"key":"ko.a2","lang":"ko","name":"A2","level":"Beginner","sort":2,"file":"sets/ko/a2.json","count":696,"rev":"2716d9f5ace1","source":"bannerless"},
+    {"key":"ko.b1","lang":"ko","name":"B1","level":"Intermediate","sort":3,"file":"sets/ko/b1.json","count":700,"rev":"b4d02d92b059","source":"bannerless"},
+    {"key":"zh.hsk1","lang":"zh","name":"HSK 1","level":"Beginner","sort":1,"file":"sets/zh/hsk1.json","count":156,"rev":"83c55fdba8b3","enabled":true,"source":"hsk"},
+    {"key":"zh.hsk2","lang":"zh","name":"HSK 2","level":"Beginner","sort":2,"file":"sets/zh/hsk2.json","count":146,"rev":"a27bc5fef364","source":"hsk"},
+    {"key":"zh.hsk3","lang":"zh","name":"HSK 3","level":"Intermediate","sort":3,"file":"sets/zh/hsk3.json","count":298,"rev":"c88f7106bd19","source":"hsk"},
+    {"key":"zh.hsk4","lang":"zh","name":"HSK 4","level":"Intermediate","sort":4,"file":"sets/zh/hsk4.json","count":598,"rev":"2e833aaaddca","source":"hsk"},
+    {"key":"zh.hsk5","lang":"zh","name":"HSK 5","level":"Advanced","sort":5,"file":"sets/zh/hsk5.json","count":1298,"rev":"8dd28eb45df5","source":"hsk"},
+    {"key":"zh.hsk6","lang":"zh","name":"HSK 6","level":"Advanced","sort":6,"file":"sets/zh/hsk6.json","count":2500,"rev":"a7b4c568bf53","source":"hsk"}
+  ]
+}

@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "HanziLock"
+rootProject.name = "LingoLock"
 include(":app")

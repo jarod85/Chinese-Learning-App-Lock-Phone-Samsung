@@ -143,11 +143,27 @@ class Settings(context: Context) {
         get() = prefs.getLong("pin_locked_until", 0L)
         set(v) = edit { putLong("pin_locked_until", v) }
 
+    /** Alphabetic languages can't be tested by typing a reading; allow "can't talk - skip". */
+    var allowSkipPronunciation: Boolean
+        get() = prefs.getBoolean("allow_skip_pronunciation", true)
+        set(v) = edit { putBoolean("allow_skip_pronunciation", v) }
+
+    // ---- languages --------------------------------------------------------------------------------
+
+    /** The language practice sessions use (zh, ja, ko, es, fr, it, ...). */
+    var activeLanguage: String
+        get() = prefs.getString("active_language", null) ?: "zh"
+        set(v) = edit { putString("active_language", v) }
+
+    /** Languages added from the app (not bundled). */
+    var addedLanguages: List<LanguageProfile>
+        get() = Languages.decode(prefs.getString("added_languages", null))
+        set(v) = edit { putString("added_languages", Languages.encode(v)) }
+
     // ---- misc -----------------------------------------------------------------------------------
 
-    var registryVersion: Int
-        get() = prefs.getInt("registry_version", 0)
-        set(v) = edit { putInt("registry_version", v) }
+    /** Only used to migrate installs from before word sets existed. */
+    val legacyRegistryVersion: Int get() = prefs.getInt("registry_version", 0)
 
     /** JSON of the session in progress, so it survives the app being killed. */
     var activeSession: String?

@@ -1,5 +1,6 @@
 package com.hanzilock.ui.main
 
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -32,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -42,60 +44,64 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hanzilock.HanziLockApp
+import com.hanzilock.core.LanguageProfile
 import com.hanzilock.data.Word
 import com.hanzilock.data.WordFilter
+import com.hanzilock.data.WordScope
 import com.hanzilock.ui.theme.LossColor
 import com.hanzilock.ui.theme.WinColor
-import com.hanzilock.ui.theme.hanziStyle
+import com.hanzilock.ui.theme.termStyle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Your word registry: the words practice sessions are drawn from. */
+/** Your words in the active language: the ones being practised, one set, or everything. */
 @Composable
-fun WordsScreen(nav: Navigator, snackbar: SnackbarHostState) {
+fun WordsScreen(nav: Navigator, snackbar: SnackbarHostState, setScope: Route.SetWords? = null) {
     val context = LocalContext.current
     val app = HanziLockApp.get(context)
     val scope = rememberCoroutineScope()
+    val settingsVersion by app.settings.changes.collectAsStateWithLifecycle()
+    val lang = remember(settingsVersion) { app.languages.active }
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf(WordFilter.ALL) }
+    var everything by rememberSaveable { mutableStateOf(false) }
+    var importUri by remember { mutableStateOf<Uri?>(null) }
     val version by app.words.changes.collectAsStateWithLifecycle()
-    val words by produceState(emptyList<Word>(), query, filter, version) {
-        value = withContext(Dispatchers.IO) { app.words.list(filter, query) }
+    val wordScope: WordScope = when {
+        setScope != null -> WordScope.InSet(setScope.setId)
+        everything -> WordScope.Everything
+        else -> WordScope.Practising
     }
-    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
-            val result = withContext(Dispatchers.IO) { runCatching { app.importExport.import(uri) } }
-            val message = result.fold(
-                onSuccess = { r ->
-                    when {
-                        r.restoredBackup -> "Backup restored (${r.added} words)."
-                        else -> buildString {
-                            append("Added ${r.added} words")
-                            if (r.skipped > 0) append(", ${r.skipped} already in your list")
-                            if (r.notFound.isNotEmpty()) append(". Not in the dictionary: ${r.notFound.take(5).joinToString(" ")}")
-                        }
-                    }
-                },
-                onFailure = { "Import failed: ${it.message}" },
-            )
-            snackbar.showSnackbar(message)
-        }
+    val setLang = if (setScope != null) remember(setScope.setId, version) { app.words.set(setScope.setId)?.lang } else null
+    val listLang = setLang ?: lang.code
+    val words by produceState(emptyList<Word>(), query, filter, wordScope, version, listLang) {
+        delay(150)
+        value = withContext(Dispatchers.IO) { app.words.list(listLang, filter, query, wordScope) }
     }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { if (it != null) importUri = it }
+    val profile = app.languages.get(listLang)
 
     ScreenScaffold(
-        title = "Words (${words.size})",
-        actions = { TextButton(onClick = { importer.launch(arrayOf("*/*")) }) { Text("Import") } },
+        title = setScope?.name ?: "Words · ${lang.name}",
+        onBack = if (setScope != null) nav::back else null,
+        actions = {
+            if (setScope == null) TextButton(onClick = { nav.go(Route.Sets) }) { Text("Sets") }
+            TextButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Import") }
+        },
         floatingActionButton = {
-            FloatingActionButton(onClick = { nav.go(Route.WordEdit(null)) }) { Icon(Icons.Default.Add, contentDescription = "Add word") }
+            FloatingActionButton(onClick = { nav.go(Route.WordEdit(null, setId = setScope?.setId)) }) {
+                Icon(Icons.Default.Add, contentDescription = "Add word")
+            }
         },
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
+        Column(Modifier.padding(padding).fillMaxSize().fileDropTarget { importUri = it }) {
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                placeholder = { Text("汉字, pinyin or English") },
+                placeholder = { Text(if (lang.isChinese) "汉字, pinyin or English" else "${lang.native} or English") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
             )
@@ -103,40 +109,69 @@ fun WordsScreen(nav: Navigator, snackbar: SnackbarHostState) {
                 Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                if (setScope == null) {
+                    FilterChip(selected = !everything, onClick = { everything = false }, label = { Text("Practising") })
+                    FilterChip(selected = everything, onClick = { everything = true }, label = { Text("All sets") })
+                }
                 WordFilter.entries.forEach { f ->
                     FilterChip(selected = filter == f, onClick = { filter = f }, label = { Text(f.label) })
                 }
             }
+            Text(
+                "${words.size}${if (words.size >= 1500) "+" else ""} words",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
             if (words.isEmpty()) {
                 Text(
-                    if (query.isBlank() && filter == WordFilter.ALL) "No words yet. Add some with +, the Dictionary tab or Import (Pleco flashcard export, CSV or a list of words)."
-                    else "Nothing matches.",
+                    if (query.isBlank() && filter == WordFilter.ALL && !everything && setScope == null) {
+                        "No sets switched on for ${lang.name}. Open Sets to choose levels, or import your own list."
+                    } else {
+                        "Nothing matches."
+                    },
                     modifier = Modifier.padding(24.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
             LazyColumn(Modifier.fillMaxSize()) {
                 items(words, key = { it.id }) { w ->
-                    WordRow(w) { nav.go(Route.WordDetail(w.id)) }
+                    WordRow(w, profile) { nav.go(Route.WordDetail(w.id)) }
                     HorizontalDivider()
                 }
             }
         }
     }
+
+    importUri?.let { uri ->
+        ImportDialog(uri, onDismiss = { importUri = null }, onDone = { msg ->
+            importUri = null
+            scope.launch { snackbar.showSnackbar(msg) }
+        })
+    }
 }
 
 @Composable
-fun WordRow(w: Word, onClick: () -> Unit) {
+fun WordRow(w: Word, profile: LanguageProfile?, onClick: () -> Unit) {
     ListItem(
         modifier = Modifier.clickable(onClick = onClick),
         headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(w.hanzi, style = hanziStyle(22))
-                Spacer(Modifier.width(10.dp))
-                Text(w.pinyinDisplay, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(w.term, style = termStyle(if (profile?.cjk != false) 22 else 19, profile?.locale), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (w.reading.isNotBlank()) {
+                    Spacer(Modifier.width(10.dp))
+                    Text(w.readingDisplay, style = termStyle(15, profile?.locale), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                }
             }
         },
-        supportingContent = { Text(w.meanings.joinToString("; "), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        supportingContent = {
+            Text(
+                if (w.needsDetails) "needs a meaning - tap to add" else w.meanings.joinToString("; "),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = if (w.needsDetails) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
         trailingContent = {
             Column(horizontalAlignment = Alignment.End) {
                 when {

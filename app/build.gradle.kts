@@ -15,6 +15,12 @@ val keystoreProps = Properties().apply {
     if (file.exists()) file.inputStream().use { load(it) }
 }
 
+// The build number is the number of commits, so every committed update installs as a newer version
+// (Settings > About shows it). Without git it falls back to 1; `adb install -r` accepts equal numbers.
+val commitCount: Int = runCatching {
+    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }.standardOutput.asText.get().trim().toInt()
+}.getOrDefault(1)
+
 android {
     namespace = "com.hanzilock"
     compileSdk = 35
@@ -24,8 +30,8 @@ android {
         applicationId = "com.hanzilock"
         minSdk = 31
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = commitCount
+        versionName = "1.1.0"
     }
 
     signingConfigs {
@@ -49,8 +55,8 @@ android {
         }
     }
 
-    // The word registry and the CC-CEDICT dictionary live in <repo>/content so they can be edited
-    // without touching app code; they are packaged as assets (registry/…, dictionary/…).
+    // The word sets, the example-sentence corpus and the CC-CEDICT dictionary live in <repo>/content so
+    // they can be edited without touching app code; they are packaged as assets (sets/…, corpus/…, dictionary/…).
     sourceSets.getByName("main").assets.srcDir(rootProject.file("content"))
 
     compileOptions {

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Builds HanziLock and installs/updates it on the phone connected over USB (or wireless adb).
+    Builds Lingo Lock and installs/updates it on the phone connected over USB (or wireless adb).
 
 .DESCRIPTION
     Uses the adb already on your PATH (e.g. the one that ships with scrcpy) so a running scrcpy
@@ -41,4 +41,4 @@ if (-not (Test-Path $apk)) { throw "APK not found: $apk (run without -NoBuild)" 
 Write-Host "Installing $apk ..."
 & $adb install -r $apk
 if ($LASTEXITCODE -ne 0) { throw 'adb install failed' }
-Write-Host 'Installed. Open HanziLock on the phone and finish the setup checklist.'
+Write-Host 'Installed. Open Lingo Lock on the phone (first time: finish the setup checklist).'

@@ -65,6 +65,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hanzilock.R
 import com.hanzilock.core.CompletionRule
+import com.hanzilock.core.LanguageProfile
 import com.hanzilock.data.QuizPart
 import com.hanzilock.data.Word
 import com.hanzilock.quiz.SentenceTiles
@@ -72,7 +73,8 @@ import com.hanzilock.ui.common.SpeakButton
 import com.hanzilock.ui.common.formatTime
 import com.hanzilock.ui.theme.LossColor
 import com.hanzilock.ui.theme.WinColor
-import com.hanzilock.ui.theme.hanziStyle
+import com.hanzilock.ui.theme.termStyle
+import com.hanzilock.ui.theme.wordDisplaySize
 import com.hanzilock.ui.quiz.QuizViewModel.Phase
 import com.hanzilock.ui.quiz.QuizViewModel.SentenceMode
 import com.hanzilock.ui.quiz.QuizViewModel.Step
@@ -85,8 +87,8 @@ fun QuizContent(vm: QuizViewModel, onDone: () -> Unit, modifier: Modifier = Modi
         when (ui.phase) {
             Phase.LOADING -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             Phase.NO_WORDS -> Message(
-                title = "Your word list is empty",
-                body = "Add words in HanziLock (Words tab, the dictionary or an import) and practice will start from them.",
+                title = "No words to practise",
+                body = "Turn on a word set (Home > Sets) or add your own words, and practice will start from them.",
                 button = "OK",
                 onClick = onDone,
             )
@@ -147,15 +149,15 @@ private fun SessionProgress(ui: QuizViewModel.Ui) {
 private fun WordCard(word: Word, ui: QuizViewModel.Ui, vm: QuizViewModel) {
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
         Column(Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(word.hanzi, style = hanziStyle(if (word.hanzi.length > 3) 52 else 72), color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(word.term, style = termStyle(wordDisplaySize(word.term, ui.language?.cjk != false), ui.language?.locale), color = MaterialTheme.colorScheme.onPrimaryContainer, textAlign = TextAlign.Center)
             word.traditional?.let {
-                Text(it, style = hanziStyle(20), color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                Text(it, style = termStyle(20, ui.language?.locale), color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
             }
             // Pinyin and audio stay hidden until the pronunciation step is over.
-            if (Step.PRONUNCIATION in ui.passed || ui.step == Step.RESULT) {
+            if ((Step.PRONUNCIATION in ui.passed || ui.step == Step.RESULT) && word.reading.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(word.pinyinDisplay, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    SpeakButton(onClick = { vm.speak(word.hanzi, slow = true) })
+                    Text(word.readingDisplay, style = termStyle(22, ui.language?.locale), color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    SpeakButton(onClick = { vm.speak(word.term, slow = true) })
                 }
             }
         }
@@ -226,38 +228,47 @@ private fun MicButton(listening: Boolean, level: Float, enabled: Boolean, onClic
 @Composable
 private fun PronunciationStep(ui: QuizViewModel.Ui, vm: QuizViewModel) {
     val listen = rememberMicAction(vm::toggleListening)
+    val japanese = ui.language?.isJapanese == true
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (!ui.typedPinyin) {
+        if (!ui.typedReading) {
             Text("Say the word out loud", style = MaterialTheme.typography.titleMedium)
-            MicButton(ui.listening, ui.level, enabled = !ui.busy, onClick = listen)
+            MicButton(ui.listening, ui.level, enabled = !ui.busy && ui.speechAvailable, onClick = listen)
             Text(
                 when {
+                    !ui.speechAvailable -> "No speech recognition on this phone."
                     ui.listening && ui.partial.isNotEmpty() -> ui.partial
                     ui.listening -> "Listening…"
                     else -> "Tap the mic, then speak (${ui.speechTriesLeft} ${if (ui.speechTriesLeft == 1) "try" else "tries"} left)"
                 },
-                style = if (ui.listening && ui.partial.isNotEmpty()) hanziStyle(22) else MaterialTheme.typography.bodyMedium,
+                style = if (ui.listening && ui.partial.isNotEmpty()) termStyle(22, ui.language?.locale) else MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
             )
-            TextButton(onClick = { vm.setTypedPinyin(true) }) { Text("Can't talk right now? Type the pinyin") }
+            when {
+                ui.language?.canTypeReading == true ->
+                    TextButton(onClick = { vm.setTypedReading(true) }) {
+                        Text(if (japanese) "Can't talk right now? Type the reading" else "Can't talk right now? Type the pinyin")
+                    }
+                ui.canSkipPronunciation ->
+                    TextButton(onClick = vm::skipPronunciation) { Text("Can't talk right now? Skip this step") }
+            }
         } else {
-            Text("Type the pinyin, with tones", style = MaterialTheme.typography.titleMedium)
+            Text(if (japanese) "Type the reading (kana or romaji)" else "Type the pinyin, with tones", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(
-                value = ui.pinyinInput,
-                onValueChange = vm::onPinyinInput,
-                label = { Text("e.g. xue2xi2 or xuéxí") },
+                value = ui.readingInput,
+                onValueChange = vm::onReadingInput,
+                label = { Text(if (japanese) "e.g. たべる or taberu" else "e.g. xue2xi2 or xuéxí") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Ascii,
+                    keyboardType = if (japanese) KeyboardType.Text else KeyboardType.Ascii,
                     capitalization = KeyboardCapitalization.None,
                     autoCorrectEnabled = false,
                     imeAction = ImeAction.Done,
                 ),
-                keyboardActions = KeyboardActions(onDone = { vm.submitPinyin() }),
+                keyboardActions = KeyboardActions(onDone = { vm.submitReading() }),
                 modifier = Modifier.fillMaxWidth(),
             )
-            Button(onClick = vm::submitPinyin, enabled = ui.pinyinInput.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Check") }
-            if (ui.speechAvailable) TextButton(onClick = { vm.setTypedPinyin(false) }) { Text("Use the microphone instead") }
+            Button(onClick = vm::submitReading, enabled = ui.readingInput.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Check") }
+            if (ui.speechAvailable) TextButton(onClick = { vm.setTypedReading(false) }) { Text("Use the microphone instead") }
         }
     }
 }
@@ -286,14 +297,14 @@ private fun SentenceStep(ui: QuizViewModel.Ui, vm: QuizViewModel, word: Word) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         when (ui.sentenceMode) {
             SentenceMode.WRITE_AI, SentenceMode.WRITE_OFFLINE -> {
-                Text("Use ${word.hanzi} in a sentence", style = MaterialTheme.typography.titleMedium.merge(hanziStyle(18)))
+                Text("Use ${word.term} in a sentence", style = MaterialTheme.typography.titleMedium.merge(termStyle(18, ui.language?.locale)))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = if (ui.listening && ui.partial.isNotEmpty()) ui.partial else ui.sentenceInput,
                         onValueChange = vm::onSentenceInput,
-                        label = { Text("Your sentence in Chinese") },
+                        label = { Text("Your sentence in ${ui.language?.name ?: "the language"}") },
                         enabled = !ui.busy && !ui.listening,
-                        textStyle = hanziStyle(20),
+                        textStyle = termStyle(20, ui.language?.locale),
                         minLines = 2,
                         modifier = Modifier.weight(1f),
                     )
@@ -347,11 +358,11 @@ private fun TileBuilder(ui: QuizViewModel.Ui, vm: QuizViewModel) {
     ) {
         FlowRow(Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (ui.picked.isEmpty()) Text("Tap the words below in the right order", modifier = Modifier.padding(8.dp))
-            ui.picked.forEach { i -> Tile(ui.tiles[i], filled = true) { vm.unpickTile(i) } }
+            ui.picked.forEach { i -> Tile(ui.tiles[i], ui.language?.locale, filled = true) { vm.unpickTile(i) } }
         }
     }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        ui.pool.forEach { i -> Tile(ui.tiles[i], filled = false) { vm.pickTile(i) } }
+        ui.pool.forEach { i -> Tile(ui.tiles[i], ui.language?.locale, filled = false) { vm.pickTile(i) } }
     }
     Button(onClick = vm::checkTiles, enabled = ui.picked.size == ui.tiles.size && ui.tiles.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
         Text("Check")
@@ -359,7 +370,7 @@ private fun TileBuilder(ui: QuizViewModel.Ui, vm: QuizViewModel) {
 }
 
 @Composable
-private fun Tile(text: String, filled: Boolean, onClick: () -> Unit) {
+private fun Tile(text: String, locale: String?, filled: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(10.dp)
     Box(
         Modifier
@@ -369,7 +380,7 @@ private fun Tile(text: String, filled: Boolean, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
-        Text(text, style = hanziStyle(22))
+        Text(text, style = termStyle(22, locale))
     }
 }
 
@@ -396,14 +407,14 @@ private fun ResultStep(ui: QuizViewModel.Ui, vm: QuizViewModel, word: Word) {
         r.corrected?.takeIf { it.isNotBlank() }?.let {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Better: ", style = MaterialTheme.typography.labelLarge)
-                Text(it, style = hanziStyle(18), modifier = Modifier.weight(1f))
+                Text(it, style = termStyle(18, ui.language?.locale), modifier = Modifier.weight(1f))
                 SpeakButton(onClick = { vm.speak(it) })
             }
         }
         r.translation?.takeIf { it.isNotBlank() }?.let {
             Text("“$it”", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        AnswerCard(word, vm)
+        AnswerCard(word, ui.language, vm)
         if (r.canOverrideMeaning) {
             OutlinedButton(onClick = vm::overrideMeaning, modifier = Modifier.fillMaxWidth()) {
                 Text("I was right - accept “${ui.meaningInput.trim()}”")
@@ -413,25 +424,26 @@ private fun ResultStep(ui: QuizViewModel.Ui, vm: QuizViewModel, word: Word) {
     }
 }
 
-/** Pleco-style entry: pinyin + audio, meanings and the example sentence. */
+/** Pleco-style entry: reading + audio, meanings and the example sentence. */
 @Composable
-fun AnswerCard(word: Word, vm: QuizViewModel) {
+fun AnswerCard(word: Word, language: LanguageProfile?, vm: QuizViewModel) {
+    val locale = language?.locale
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(word.hanzi, style = hanziStyle(26, FontWeight.Medium))
+                Text(word.term, style = termStyle(26, locale, FontWeight.Medium))
                 Spacer(Modifier.width(12.dp))
-                Text(word.pinyinDisplay, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                SpeakButton(onClick = { vm.speak(word.hanzi, slow = true) })
+                Text(word.readingDisplay, style = termStyle(18, locale), modifier = Modifier.weight(1f))
+                SpeakButton(onClick = { vm.speak(word.term, slow = true) })
             }
             word.meanings.forEachIndexed { i, m -> Text("${i + 1}. $m", style = MaterialTheme.typography.bodyLarge) }
             word.examples.firstOrNull()?.let { ex ->
                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(SentenceTiles.display(ex.zh), style = hanziStyle(19), modifier = Modifier.weight(1f))
-                    SpeakButton(onClick = { vm.speak(ex.zh) })
+                    Text(SentenceTiles.display(ex.text, language?.spaced == true), style = termStyle(19, locale), modifier = Modifier.weight(1f))
+                    SpeakButton(onClick = { vm.speak(ex.text) })
                 }
-                ex.pinyin?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                ex.reading?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 ex.en?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             }
         }

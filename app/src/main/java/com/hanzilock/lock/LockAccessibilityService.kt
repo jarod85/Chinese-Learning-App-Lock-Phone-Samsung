@@ -88,7 +88,7 @@ class LockAccessibilityService : AccessibilityService() {
         frontPackage = pkg
         if (!app.lockEngine.isLockDue()) return
         if (pkg == packageName) {
-            // The practice screen is fine; the rest of HanziLock (word list, settings) is not.
+            // The practice screen is fine; the rest of the app (word list, settings) is not.
             if (className == MainActivity::class.java.name) enforce()
             return
         }

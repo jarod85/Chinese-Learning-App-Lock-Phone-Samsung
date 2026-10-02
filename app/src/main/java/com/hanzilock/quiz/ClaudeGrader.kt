@@ -28,7 +28,22 @@ import java.time.Duration
 class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
     class GraderException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
-    data class WordInfo(val hanzi: String, val pinyin: String, val meanings: List<String>)
+    /** [language] is the language's English name ("Mandarin Chinese", "Spanish", ...). */
+    data class WordInfo(val term: String, val reading: String, val meanings: List<String>, val language: String) {
+        val shown: String get() = if (reading.isBlank()) term else "$term ($reading)"
+    }
+
+    @Serializable
+    data class WordDescription(
+        val term: String,
+        val reading: String = "",
+        val meanings: List<String> = emptyList(),
+        val example: String = "",
+        @SerialName("example_translation") val exampleTranslation: String = "",
+    )
+
+    @Serializable
+    private data class WordDescriptions(val words: List<WordDescription> = emptyList())
 
     @Serializable
     data class SentenceVerdict(
@@ -53,28 +68,28 @@ class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
 
     fun gradeSentence(word: WordInfo, sentence: String): SentenceVerdict = ask(
         system = """
-            You check answers from someone learning Mandarin Chinese (simplified characters). They were shown a word and asked to write their own sentence using it.
-            Decide whether the sentence uses the word correctly: grammatical, natural enough that a native speaker would understand it, and using the word in a sense that fits its meaning. Ignore punctuation and small slips in other characters.
-            The sentence must contain the word itself. Just the word, or the word padded with filler, does not count.
-            Feedback: one or two short sentences in English. Also give a corrected or more natural version of the sentence in simplified Chinese (repeat it if it was already good) and an English translation of the learner's sentence.
+            You check answers from someone learning ${word.language}. They were shown a word and asked to write their own sentence using it.
+            Decide whether the sentence uses the word correctly: grammatical, natural enough that a native speaker would understand it, and using the word in a sense that fits its meaning. Ignore punctuation and small slips elsewhere in the sentence.
+            The sentence must contain the word itself; an inflected or conjugated form of it is fine. Just the word, or the word padded with filler, does not count.
+            Feedback: one or two short sentences in English. Also give a corrected or more natural version of the sentence in ${word.language} (repeat it if it was already good) and an English translation of the learner's sentence.
         """.trimIndent(),
-        user = "Word: ${word.hanzi} (${word.pinyin})\nMeanings: ${word.meanings.joinToString("; ")}\nLearner's sentence: $sentence",
+        user = "Word: ${word.shown}\nMeanings: ${word.meanings.joinToString("; ")}\nLearner's sentence: $sentence",
         properties = linkedMapOf(
             "correct" to ("boolean" to "true if the sentence uses the word correctly"),
-            "uses_target_word" to ("boolean" to "true if the sentence contains the target word"),
+            "uses_target_word" to ("boolean" to "true if the sentence contains the target word or a form of it"),
             "feedback" to ("string" to "one or two short sentences in English"),
-            "corrected_sentence" to ("string" to "corrected or more natural sentence in simplified Chinese"),
+            "corrected_sentence" to ("string" to "corrected or more natural sentence"),
             "translation" to ("string" to "English translation of the learner's sentence"),
         ),
     ).let { AppJson.decodeFromString<SentenceVerdict>(it) }
 
     fun checkMeaning(word: WordInfo, answer: String): MeaningVerdict = ask(
         system = """
-            You check answers from someone learning Mandarin Chinese. They were shown a Chinese word and asked for its English meaning.
+            You check answers from someone learning ${word.language}. They were shown a word and asked for its English meaning.
             Accept any answer that shows they know what the word means: synonyms, a different part of speech, or one of several senses is fine. Reject answers with a wrong, opposite or much too vague meaning.
             Feedback: one short sentence in English.
         """.trimIndent(),
-        user = "Word: ${word.hanzi} (${word.pinyin})\nDictionary meanings: ${word.meanings.joinToString("; ")}\nLearner's answer: $answer",
+        user = "Word: ${word.shown}\nDictionary meanings: ${word.meanings.joinToString("; ")}\nLearner's answer: $answer",
         properties = linkedMapOf(
             "correct" to ("boolean" to "true if the answer shows they know the meaning"),
             "feedback" to ("string" to "one short sentence in English"),
@@ -83,20 +98,49 @@ class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
 
     fun generateExample(word: WordInfo): GeneratedExample = ask(
         system = """
-            You write example sentences for a learner of Mandarin Chinese. Given a word, write one short, natural sentence (5 to 15 characters) in simplified Chinese that shows how the word is typically used, with mostly common vocabulary.
-            In the Chinese sentence put a space between words, for example "我 每天 学习 汉语。". Also give the pinyin with tone marks and an English translation.
+            You write example sentences for a learner of ${word.language}. Given a word, write one short, natural sentence that shows how the word is typically used, with mostly common vocabulary.
+            For Chinese, put a space between words (for example "我 每天 学习 汉语。") and give the pinyin with tone marks; for Japanese give the reading in hiragana; for other languages leave the reading empty. Also give an English translation.
         """.trimIndent(),
-        user = "Word: ${word.hanzi} (${word.pinyin})\nMeanings: ${word.meanings.joinToString("; ")}",
+        user = "Word: ${word.shown}\nMeanings: ${word.meanings.joinToString("; ")}",
         properties = linkedMapOf(
-            "zh" to ("string" to "the sentence in simplified Chinese, words separated by spaces"),
-            "pinyin" to ("string" to "pinyin with tone marks"),
+            "zh" to ("string" to "the example sentence"),
+            "pinyin" to ("string" to "reading of the sentence (pinyin / hiragana), or empty"),
             "en" to ("string" to "English translation"),
         ),
     ).let { AppJson.decodeFromString<GeneratedExample>(it) }
 
+    /**
+     * Details for imported words the dictionary didn't know: reading (pinyin with tone marks for
+     * Chinese, hiragana for Japanese, empty otherwise), English meanings and one example sentence.
+     */
+    fun describeWords(language: String, terms: List<String>): List<WordDescription> {
+        val item = mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "term" to mapOf("type" to "string", "description" to "the word exactly as given"),
+                "reading" to mapOf("type" to "string", "description" to "pinyin with tone marks (Chinese), hiragana (Japanese), or empty"),
+                "meanings" to mapOf("type" to "array", "items" to mapOf("type" to "string"), "description" to "1-4 short English meanings"),
+                "example" to mapOf("type" to "string", "description" to "a short natural example sentence using the word"),
+                "example_translation" to mapOf("type" to "string", "description" to "English translation of the example"),
+            ),
+            "required" to listOf("term", "reading", "meanings", "example", "example_translation"),
+            "additionalProperties" to false,
+        )
+        val text = ask(
+            system = """
+                You help someone learning $language build flashcards. For each word, give its reading (pinyin with tone marks and one space between syllables for Chinese, hiragana for Japanese, an empty string for other languages), up to four short English meanings like a learner's dictionary would, and one short natural example sentence using the word with its English translation.
+                Return the words in the order given, with each term exactly as given.
+            """.trimIndent(),
+            user = "Words ($language):\n" + terms.joinToString("\n"),
+            properties = emptyMap(),
+            rawProperties = mapOf("words" to mapOf("type" to "array", "items" to item)),
+        )
+        return AppJson.decodeFromString<WordDescriptions>(text).words
+    }
+
     /** Cheap end-to-end check for the Settings screen. */
     fun testConnection(): String {
-        val verdict = checkMeaning(WordInfo("你好", "nǐhǎo", listOf("hello", "hi")), "hello")
+        val verdict = checkMeaning(WordInfo("你好", "nǐhǎo", listOf("hello", "hi"), "Mandarin Chinese"), "hello")
         return if (verdict.correct) "Connected to $model." else "Connected, but got an unexpected answer: ${verdict.feedback}"
     }
 
@@ -105,14 +149,17 @@ class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
      * is kept low for speed; a refused request is retried server-side on the recommended fallback
      * model (the "fallbacks" option) before we give up.
      */
-    private fun ask(system: String, user: String, properties: Map<String, Pair<String, String>>): String {
+    private fun ask(
+        system: String,
+        user: String,
+        properties: Map<String, Pair<String, String>>,
+        rawProperties: Map<String, Any> = emptyMap(),
+    ): String {
+        val props: Map<String, Any> = properties.mapValues { (_, v) -> mapOf("type" to v.first, "description" to v.second) } + rawProperties
         val schema = JsonOutputFormat.Schema.builder()
             .putAdditionalProperty("type", JsonValue.from("object"))
-            .putAdditionalProperty(
-                "properties",
-                JsonValue.from(properties.mapValues { (_, v) -> mapOf("type" to v.first, "description" to v.second) }),
-            )
-            .putAdditionalProperty("required", JsonValue.from(properties.keys.toList()))
+            .putAdditionalProperty("properties", JsonValue.from(props))
+            .putAdditionalProperty("required", JsonValue.from(props.keys.toList()))
             .putAdditionalProperty("additionalProperties", JsonValue.from(false))
             .build()
         val output = OutputConfig.builder().format(JsonOutputFormat.builder().schema(schema).build())

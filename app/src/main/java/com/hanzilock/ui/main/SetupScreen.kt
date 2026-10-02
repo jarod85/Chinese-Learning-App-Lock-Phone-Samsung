@@ -63,6 +63,8 @@ fun SetupScreen(nav: Navigator) {
     var micAsked by remember { mutableIntStateOf(0) }
     val mic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { micAsked++ }
 
+    val lang = remember(settingsVersion) { app.languages.active }
+    val hasVoice = remember(resumed, settingsVersion, tts) { tts == Speaker.Status.READY && app.speaker.hasVoice(lang.javaLocale) }
     val items = remember(resumed, settingsVersion, tts, micAsked) {
         listOf(
             SetupItem(
@@ -78,7 +80,7 @@ fun SetupScreen(nav: Navigator) {
             ),
             SetupItem(
                 "Practice gate (Accessibility)",
-                "Settings > Accessibility > Installed apps > HanziLock practice gate > On.\n" +
+                "Settings > Accessibility > Installed apps > Lingo Lock practice gate > On.\n" +
                     "If the switch is greyed out (\"Restricted setting\"): open App info, tap ⋮ (top right) > " +
                     "\"Allow restricted settings\", then try again.",
                 SystemAccess.accessibilityEnabled(context), "Open", true,
@@ -87,7 +89,7 @@ fun SetupScreen(nav: Navigator) {
             ),
             SetupItem(
                 "Run in the background",
-                "Stops One UI from putting HanziLock to sleep. Also add it under Settings > Battery > " +
+                "Stops One UI from putting Lingo Lock to sleep. Also add it under Settings > Battery > " +
                     "Background usage limits > Never sleeping apps.",
                 SystemAccess.batteryUnrestricted(context), "Allow", true, { SystemAccess.requestBatteryExemption(context) },
             ),
@@ -97,24 +99,24 @@ fun SetupScreen(nav: Navigator) {
                 SystemAccess.canDrawOverlays(context), "Open", false, { SystemAccess.openOverlaySettings(context) },
             ),
             SetupItem(
-                "Chinese voice",
-                when (tts) {
-                    Speaker.Status.READY -> "Pronunciation audio is ready."
-                    Speaker.Status.NO_CHINESE_VOICE -> "Install a Chinese (Mandarin) voice: Settings > General management > " +
-                        "Text-to-speech > preferred engine (Samsung or Google) > ⚙ > Install voice data > Chinese."
-                    Speaker.Status.STARTING -> "Checking the text-to-speech engine…"
-                    Speaker.Status.UNAVAILABLE -> "No text-to-speech engine found. Install Google Speech Services from the Play Store."
+                "${lang.name} voice",
+                when {
+                    tts == Speaker.Status.STARTING -> "Checking the text-to-speech engine…"
+                    tts == Speaker.Status.UNAVAILABLE -> "No text-to-speech engine found. Install Google Speech Services from the Play Store."
+                    hasVoice -> "Pronunciation audio is ready."
+                    else -> "Install a ${lang.name} voice: Settings > General management > Text-to-speech > preferred engine " +
+                        "(Samsung or Google) > ⚙ > Install voice data > ${lang.name}."
                 },
-                tts == Speaker.Status.READY, "Settings", false, { SystemAccess.openTtsSettings(context) },
-                "Play 你好" to { app.speaker.speak("你好") },
+                hasVoice, "Settings", false, { SystemAccess.openTtsSettings(context) },
+                "Play “${greeting(lang.code)}”" to { app.speaker.speak(greeting(lang.code), lang.javaLocale) },
             ),
             SetupItem(
-                "Chinese speech recognition",
+                "Speech recognition",
                 if (SystemAccess.speechAvailable(context)) {
-                    "Available. It works best online; for offline use download Chinese (Mandarin) in Google's speech " +
-                        "recognition settings. Without it you can type pinyin instead."
+                    "Available. It works best online; for offline use download ${lang.name} in Google's speech recognition " +
+                        "settings. Without it you can type the reading (Chinese, Japanese) or skip the step."
                 } else {
-                    "No speech recognizer found - you'll type pinyin instead. Install or update the Google app to enable it."
+                    "No speech recognizer found. Install or update the Google app to enable it."
                 },
                 SystemAccess.speechAvailable(context), "Voice input", false, { SystemAccess.openVoiceInputSettings(context) },
             ),
@@ -132,7 +134,7 @@ fun SetupScreen(nav: Navigator) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
-                "HanziLock turns your phone into a practice gate: at the times you choose it asks you a few words " +
+                "Lingo Lock turns your phone into a practice gate: at the times you choose it asks you a few words " +
                     "before other apps open. Calls, alarms, your calendar and the apps you allow keep working.",
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -185,4 +187,17 @@ private fun SetupRow(item: SetupItem) {
             }
         }
     }
+}
+
+private fun greeting(code: String): String = when (code) {
+    "zh", "yue" -> "你好"
+    "ja" -> "こんにちは"
+    "ko" -> "안녕하세요"
+    "es" -> "hola"
+    "fr" -> "bonjour"
+    "it" -> "ciao"
+    "de" -> "hallo"
+    "pt" -> "olá"
+    "ru" -> "привет"
+    else -> "hello"
 }

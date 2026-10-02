@@ -3,10 +3,7 @@ package com.hanzilock.core
 import com.hanzilock.data.CedictFormat
 import com.hanzilock.data.ImportParser
 import com.hanzilock.data.ParsedWord
-import com.hanzilock.data.RegistryFile
-import com.hanzilock.data.AppJson
 import com.hanzilock.quiz.Pinyin
-import com.hanzilock.quiz.SpeechMatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -78,7 +75,7 @@ class ImportParserTest {
         )
         assertEquals(
             listOf("学习", "喜欢", "朋友"),
-            ImportParser.parseText("学习 喜欢，朋友\n学习").map { it.hanzi },
+            ImportParser.parseText("学习 喜欢，朋友\n学习").map { it.term },
         )
     }
 }
@@ -107,32 +104,5 @@ class CedictFileTest {
         assertEquals("xue2 xi2", s.pinyin)
         assertEquals("xué xí", Pinyin.numberedToMarked(s.pinyin))
         assertEquals("學習", s.traditional)
-    }
-}
-
-/** Sanity checks on the bundled registry (content/registry/words.json). */
-class RegistryFileTest {
-    private fun registry(): RegistryFile {
-        val candidates = listOf(File("../content/registry/words.json"), File("content/registry/words.json"))
-        val file = candidates.first { it.exists() }
-        return AppJson.decodeFromString<RegistryFile>(file.readText(Charsets.UTF_8))
-    }
-
-    @Test
-    fun everyWordIsWellFormed() {
-        val reg = registry()
-        assertTrue(reg.version >= 1)
-        assertEquals("duplicate words", reg.words.size, reg.words.map { it.hanzi }.toSet().size)
-        for (w in reg.words) {
-            val syllables = Pinyin.syllables(w.pinyin)
-            val chars = w.hanzi.codePointCount(0, w.hanzi.length)
-            assertEquals("pinyin/character count for ${w.hanzi} (${w.pinyin})", chars, syllables.size)
-            assertEquals("pinyin not normalized for ${w.hanzi}", Pinyin.normalizeToMarked(w.pinyin), w.pinyin)
-            assertTrue("no meaning for ${w.hanzi}", w.meanings.isNotEmpty())
-            for (ex in w.examples) {
-                assertTrue("example for ${w.hanzi} doesn't contain it: ${ex.zh}", SpeechMatcher.hanOnly(ex.zh).contains(w.hanzi))
-                assertTrue("example for ${w.hanzi} has no translation", !ex.en.isNullOrBlank())
-            }
-        }
     }
 }

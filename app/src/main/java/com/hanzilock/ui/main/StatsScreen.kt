@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -52,20 +53,22 @@ private data class StatsData(
 fun StatsScreen(nav: Navigator) {
     val app = HanziLockApp.get(LocalContext.current)
     val version by app.words.changes.collectAsStateWithLifecycle()
-    val data by produceState<StatsData?>(null, version) {
+    val settingsVersion by app.settings.changes.collectAsStateWithLifecycle()
+    val lang = remember(settingsVersion) { app.languages.active }
+    val data by produceState<StatsData?>(null, version, lang.code) {
         value = withContext(Dispatchers.IO) {
-            StatsData(app.words.totals(), app.words.dailyStats(14), app.words.weakest(8), app.words.recentLosses(60))
+            StatsData(app.words.totals(lang.code), app.words.dailyStats(lang.code, 14), app.words.weakest(lang.code, 8), app.words.recentLosses(lang.code, 60))
         }
     }
 
-    ScreenScaffold("Stats") { padding ->
+    ScreenScaffold("Stats · ${lang.name}") { padding ->
         val d = data ?: return@ScreenScaffold
         LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
             item {
                 val t = d.totals
                 val graded = t.wins + t.losses
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatTile("Words", "${t.seen}/${t.words}", "practised", Modifier.weight(1f))
+                    StatTile("Words", "${t.seen}", "practised of ${t.words} on", Modifier.weight(1f))
                     StatTile("Accuracy", if (graded == 0) "-" else "${t.wins * 100 / graded}%", "$graded answers", Modifier.weight(1f))
                     StatTile("Streak", "${t.streakDays}", "days", Modifier.weight(1f))
                     StatTile("Sessions", "${t.sessionsCompleted}", "${t.sessionsSkipped} skipped", Modifier.weight(1f))
@@ -78,14 +81,14 @@ fun StatsScreen(nav: Navigator) {
             if (d.weakest.isNotEmpty()) {
                 item { SectionTitle("Weakest words") }
                 items(d.weakest, key = { "w${it.id}" }) { w ->
-                    WordRow(w) { nav.go(Route.WordDetail(w.id)) }
+                    WordRow(w, lang) { nav.go(Route.WordDetail(w.id)) }
                     HorizontalDivider()
                 }
             }
             item { SectionTitle("Loss log") }
             if (d.losses.isEmpty()) item { Text("No losses recorded yet.", style = MaterialTheme.typography.bodyMedium) }
             items(d.losses, key = { "l${it.id}" }) { a ->
-                AttemptRow(a, showHanzi = true, onClick = { nav.go(Route.WordDetail(a.wordId)) })
+                AttemptRow(a, showTerm = true, onClick = { nav.go(Route.WordDetail(a.wordId)) })
                 HorizontalDivider()
             }
         }

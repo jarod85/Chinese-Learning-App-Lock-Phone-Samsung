@@ -75,7 +75,7 @@ private data class SettingsSnapshot(
     val gradingMode: GradingMode,
     val emailRuleCount: Int,
     val allowedCount: Int,
-    val registryVersion: Int,
+    val allowSkip: Boolean,
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -91,7 +91,7 @@ fun SettingsScreen(nav: Navigator, snackbar: SnackbarHostState) {
         SettingsSnapshot(
             s.lockEnabled, s.resetTimes, s.windowStart, s.windowEnd, s.wordsPerSession, s.completionRule,
             s.speechAttempts, s.preferTypedPinyin, s.requireTones, s.allowMeaningOverride, s.gradingMode,
-            s.emailRules.size, app.allowList.allowedApps().size, s.registryVersion,
+            s.emailRules.size, app.allowList.allowedApps().size, s.allowSkipPronunciation,
         )
     }
 
@@ -105,12 +105,7 @@ fun SettingsScreen(nav: Navigator, snackbar: SnackbarHostState) {
     fun setTimes(times: List<Int>) = app.lockEngine.updateSchedule(times.distinct().ifEmpty { listOf(s.windowStart) })
     fun regenerate(count: Int = s.resetTimes.size) = setTimes(ScheduleMath.evenlySpaced(count, s.windowStart, s.windowEnd))
 
-    val exportRegistry = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) scope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { app.importExport.exportRegistry(uri) } }
-            snackbar.showSnackbar(r.fold({ "Exported. Copy it to content/registry/words.json in the repo." }, { "Export failed: ${it.message}" }))
-        }
-    }
+
     val exportBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch {
             val r = withContext(Dispatchers.IO) { runCatching { app.importExport.exportBackup(uri) } }
@@ -186,7 +181,10 @@ fun SettingsScreen(nav: Navigator, snackbar: SnackbarHostState) {
             SectionTitle("Checks")
             Stepper("Pronunciation tries", snap.speechAttempts, 1..5) { s.speechAttempts = it }
             SwitchRow("Start with typed pinyin", "Instead of speaking (e.g. at the office)", snap.preferTypedPinyin) { s.preferTypedPinyin = it }
-            SwitchRow("Tones required in typed pinyin", "xue2xi2 ✓   xuexi ✗", snap.requireTones) { s.requireTones = it }
+            SwitchRow("Strict typed readings", "Tones in pinyin (xue2xi2 ✓ xuexi ✗), long vowels in Japanese", snap.requireTones) { s.requireTones = it }
+            SwitchRow("Allow skipping pronunciation", "For languages without a typed reading (Korean, Spanish, …) when you can't talk", snap.allowSkip) {
+                s.allowSkipPronunciation = it
+            }
             SwitchRow("Allow \"I was right\"", "Accept your own English answer when the offline check disagrees", snap.allowMeaningOverride) {
                 s.allowMeaningOverride = it
             }
@@ -248,15 +246,12 @@ fun SettingsScreen(nav: Navigator, snackbar: SnackbarHostState) {
             // ---- data ----
             SectionTitle("Your words & progress")
             Text(
-                "Export the word list in the repo's registry format, or back up everything (words + history). " +
-                    "Import a list or restore a backup from the Words tab.",
+                "Back up everything (all languages, sets, progress and history) to a file. Restore it by importing the file " +
+                    "(Words > Import). Single sets can be exported from Words > Sets.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { exportRegistry.launch("words.json") }) { Text("Export words") }
-                OutlinedButton(onClick = { exportBackup.launch("hanzilock-backup.json") }) { Text("Backup") }
-            }
+            OutlinedButton(onClick = { exportBackup.launch("lingolock-backup.json") }) { Text("Backup") }
 
             // ---- security & setup ----
             SectionTitle("Security & setup")
@@ -265,7 +260,7 @@ fun SettingsScreen(nav: Navigator, snackbar: SnackbarHostState) {
 
             SectionTitle("About")
             Text(
-                "HanziLock ${BuildConfig.VERSION_NAME} · registry v${snap.registryVersion} · " +
+                "Lingo Lock ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE}) · " +
                     when (val d = dictState) {
                         is DictState.Ready -> "${d.entries} dictionary entries"
                         is DictState.Importing -> "dictionary loading"
@@ -274,7 +269,7 @@ fun SettingsScreen(nav: Navigator, snackbar: SnackbarHostState) {
                 style = MaterialTheme.typography.bodySmall,
             )
             Text(
-                "Dictionary: CC-CEDICT (cc-cedict.org), licensed CC BY-SA 4.0.",
+                "Data: CC-CEDICT (CC BY-SA 4.0) · HSK lists by drkameleon and hskhsk.com (MIT) · OpenJLPT (CC BY-SA 4.0) · Bannerless Studio word packs (CC BY-SA 4.0) · google-books-ngram-frequency (CC BY 3.0) · Tatoeba sentences (CC BY 2.0 FR).",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 24.dp),

@@ -5,13 +5,16 @@ import android.speech.SpeechRecognizer
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.hanzilock.HanziLockApp
+import com.hanzilock.core.LanguageProfile
 import com.hanzilock.data.Example
 import com.hanzilock.data.QuizPart
 import com.hanzilock.data.Word
 import com.hanzilock.quiz.ActiveSession
 import com.hanzilock.quiz.ClaudeGrader
+import com.hanzilock.quiz.JapaneseKana
 import com.hanzilock.quiz.MeaningMatcher
 import com.hanzilock.quiz.Pinyin
+import com.hanzilock.quiz.Pronunciation
 import com.hanzilock.quiz.SentenceTiles
 import com.hanzilock.quiz.SessionKind
 import com.hanzilock.quiz.SessionManager
@@ -27,9 +30,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * One word = three checks, in order: say it (speech recognition, or typed pinyin), give the
- * English meaning, use it in a sentence. The first miss ends the word as a loss (it's logged and
- * the quiz moves on to another word); passing all three is a win.
+ * One word = three checks, in order: say it (speech recognition in the word's language, or typed
+ * pinyin / kana), give the English meaning, use it in a sentence. The first miss ends the word as
+ * a loss (it's logged and the quiz moves on to another word); passing all three is a win.
  */
 class QuizViewModel(application: Application) : AndroidViewModel(application) {
     enum class Step { PRONUNCIATION, MEANING, SENTENCE, RESULT }
@@ -53,16 +56,18 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
         val kind: SessionKind = SessionKind.PRACTICE,
         val session: ActiveSession? = null,
         val word: Word? = null,
+        val language: LanguageProfile? = null,
         val step: Step = Step.PRONUNCIATION,
         val passed: Set<Step> = emptySet(),
         // pronunciation
-        val typedPinyin: Boolean = false,
+        val typedReading: Boolean = false,
         val speechAvailable: Boolean = true,
+        val canSkipPronunciation: Boolean = false,
         val listening: Boolean = false,
         val level: Float = 0f,
         val partial: String = "",
         val speechTriesLeft: Int = 2,
-        val pinyinInput: String = "",
+        val readingInput: String = "",
         // meaning
         val meaningInput: String = "",
         // sentence
@@ -92,6 +97,8 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
     private var meaningAnswer: String? = null
     private var sentenceAnswer: String? = null
     private var gradedBy = "offline"
+
+    private fun profileOf(word: Word): LanguageProfile = app.languages.get(word.lang)
 
     /** Loads (or resumes) a session; does nothing while one is already on screen. */
     fun start(kind: SessionKind) {
@@ -126,15 +133,18 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
             val word = withContext(Dispatchers.IO) { app.words.get(id) }
             if (word != null) {
                 heard = null; meaningAnswer = null; sentenceAnswer = null; gradedBy = "offline"
+                val profile = profileOf(word)
                 val speechOk = speech.isAvailable
                 _ui.value = Ui(
                     phase = Phase.QUIZ,
                     kind = _ui.value.kind,
                     session = s,
                     word = word,
+                    language = profile,
                     step = Step.PRONUNCIATION,
-                    typedPinyin = app.settings.preferTypedPinyin || !speechOk,
+                    typedReading = profile.canTypeReading && (app.settings.preferTypedPinyin || !speechOk),
                     speechAvailable = speechOk,
+                    canSkipPronunciation = !profile.canTypeReading && app.settings.allowSkipPronunciation,
                     speechTriesLeft = app.settings.speechAttempts,
                 )
                 return
@@ -182,12 +192,12 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
 
     // ---- step 1: pronunciation -------------------------------------------------------------------
 
-    fun setTypedPinyin(typed: Boolean) {
+    fun setTypedReading(typed: Boolean) {
         speech.stop()
-        _ui.update { it.copy(typedPinyin = typed, listening = false, note = null) }
+        _ui.update { it.copy(typedReading = typed, listening = false, note = null) }
     }
 
-    fun onPinyinInput(text: String) = _ui.update { it.copy(pinyinInput = text) }
+    fun onReadingInput(text: String) = _ui.update { it.copy(readingInput = text) }
 
     fun toggleListening() {
         val word = _ui.value.word ?: return
@@ -197,7 +207,7 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         _ui.update { it.copy(listening = true, partial = "", note = null, level = 0f) }
-        speech.start("zh-CN", object : SpeechInput.Listener {
+        speech.start(profileOf(word).locale, object : SpeechInput.Listener {
             override fun onPartial(text: String) = _ui.update { it.copy(partial = text) }
             override fun onLevel(rmsDb: Float) = _ui.update { it.copy(level = rmsDb) }
             override fun onResults(candidates: List<String>) {
@@ -207,7 +217,12 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
             override fun onError(code: Int, message: String) {
                 val unsupported = code == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
                     code == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE || code == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
-                _ui.update { it.copy(listening = false, level = 0f, note = message, typedPinyin = it.typedPinyin || unsupported) }
+                _ui.update {
+                    it.copy(
+                        listening = false, level = 0f, note = message,
+                        typedReading = it.typedReading || (unsupported && it.language?.canTypeReading == true),
+                    )
+                }
             }
         })
     }
@@ -215,7 +230,7 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
     private fun judgeSpeech(word: Word, candidates: List<String>) {
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
-                SpeechMatcher.match(candidates, word.hanzi, Pinyin.syllables(word.pinyin), ::readingsOf)
+                Pronunciation.match(word.lang, word.term, word.reading, word.forms, candidates, ::readingsOf)
             }
             if (_ui.value.word?.id != word.id || _ui.value.step != Step.PRONUNCIATION) return@launch
             heard = result.heard
@@ -239,28 +254,38 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
         return map[ch].orEmpty()
     }
 
-    /** Character readings taken from your own words, used until the dictionary is imported. */
+    /** Character readings taken from your Chinese words, used until the dictionary is imported. */
     private fun buildRegistryReadings(): Map<String, Set<String>> {
         val map = HashMap<String, MutableSet<String>>()
-        for (w in app.words.list()) {
-            val chars = w.hanzi.codePoints().toArray().map { String(Character.toChars(it)) }
-            val syllables = Pinyin.syllables(w.pinyin)
+        for (w in app.words.list("zh", limit = Int.MAX_VALUE)) {
+            val chars = w.term.codePoints().toArray().map { String(Character.toChars(it)) }
+            val syllables = Pinyin.syllables(w.reading)
             if (chars.size != syllables.size) continue
             chars.zip(syllables).forEach { (c, s) -> map.getOrPut(c) { HashSet() }.add(s) }
         }
         return map
     }
 
-    fun submitPinyin() {
+    /** Typed pinyin (Chinese) or kana / romaji (Japanese). */
+    fun submitReading() {
         val word = _ui.value.word ?: return
-        val input = _ui.value.pinyinInput.trim()
+        val input = _ui.value.readingInput.trim()
         if (input.isEmpty()) return
         heard = "typed: $input"
-        if (Pinyin.typedAnswerMatches(input, word.pinyin, word.hanzi, app.settings.requireTones)) {
-            pass(Step.PRONUNCIATION, "✓ ${word.pinyinDisplay}")
-        } else {
-            fail(QuizPart.PRONUNCIATION, "You typed “$input”.")
+        val strict = app.settings.requireTones
+        val ok = when (word.lang) {
+            "ja" -> JapaneseKana.readingMatches(input, word.reading.ifEmpty { word.term }, strict)
+            // For Chinese, forms hold other accepted pinyin (the official HSK one, e.g. zhīdao for 知道).
+            else -> Pinyin.typedMatchesAny(input, listOf(word.reading) + word.forms.filter(Pinyin::looksLikePinyin), word.term, strict)
         }
+        if (ok) pass(Step.PRONUNCIATION, "✓ ${word.readingDisplay}") else fail(QuizPart.PRONUNCIATION, "You typed “$input”.")
+    }
+
+    /** "Can't talk right now" for languages without a typed-reading check: logged, not scored. */
+    fun skipPronunciation() {
+        speech.stop()
+        heard = "(pronunciation skipped)"
+        pass(Step.PRONUNCIATION, "Pronunciation skipped - say it out loud next time.")
     }
 
     // ---- step 2: meaning ---------------------------------------------------------------------------
@@ -323,7 +348,9 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
     private fun setupTiles(word: Word, example: Example, note: String?) {
         viewModelScope.launch {
             val tokens = withContext(Dispatchers.IO) {
-                SentenceTiles.tokens(example.zh, word.hanzi) { app.dictionary.isWord(it) }
+                SentenceTiles.tokens(example.text, word.term, japanese = word.lang == "ja") {
+                    word.lang == "zh" && app.dictionary.isWord(it)
+                }
             }
             _ui.update {
                 it.copy(
@@ -341,15 +368,16 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onSentenceInput(text: String) = _ui.update { it.copy(sentenceInput = text) }
 
-    /** Speak the sentence instead of typing it (Mandarin dictation fills the text box). */
+    /** Speak the sentence instead of typing it (dictation in the word's language fills the text box). */
     fun toggleDictation() {
+        val word = _ui.value.word ?: return
         if (_ui.value.listening) {
             speech.stop()
             _ui.update { it.copy(listening = false, level = 0f) }
             return
         }
         _ui.update { it.copy(listening = true, partial = "", note = null) }
-        speech.start("zh-CN", object : SpeechInput.Listener {
+        speech.start(profileOf(word).locale, object : SpeechInput.Listener {
             override fun onPartial(text: String) = _ui.update { it.copy(partial = text) }
             override fun onLevel(rmsDb: Float) = _ui.update { it.copy(level = rmsDb) }
             override fun onResults(candidates: List<String>) =
@@ -398,16 +426,21 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Without AI a free sentence can only be sanity-checked: it must contain the word and more. */
+    /** Without AI a free sentence can only be sanity-checked: it must use the word and have more words. */
     private fun judgeOffline(word: Word, sentence: String, prefix: String?) {
         gradedBy = "offline"
-        val han = SpeechMatcher.hanOnly(sentence)
-        val ok = han.contains(SpeechMatcher.hanOnly(word.hanzi)) && han.length >= SpeechMatcher.hanOnly(word.hanzi).length + 2
-        val lead = prefix?.let { "$it " }.orEmpty()
-        if (ok) {
-            win(feedback = "${lead}Your sentence contains ${word.hanzi}; grammar can't be checked offline - compare it with the example.")
+        val profile = profileOf(word)
+        val uses = Pronunciation.sentenceUses(word.lang, sentence, word.term, word.forms, word.reading)
+        val longEnough = if (profile.spaced) {
+            Pronunciation.normalize(sentence).split(' ').count { it.isNotEmpty() } >= 3
         } else {
-            fail(QuizPart.SENTENCE, "${lead}The sentence must contain ${word.hanzi} plus a few more words.")
+            SpeechMatcher.hanOnly(sentence).length + sentence.count { JapaneseKana.isKana(it) } >= word.term.length + 2
+        }
+        val lead = prefix?.let { "$it " }.orEmpty()
+        if (uses && longEnough) {
+            win(feedback = "${lead}Your sentence uses ${word.term}; grammar can't be checked offline - compare it with the example.")
+        } else {
+            fail(QuizPart.SENTENCE, "${lead}The sentence must use ${word.term} plus a few more words.")
         }
     }
 
@@ -418,7 +451,8 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
     fun checkTiles() {
         val u = _ui.value
         if (u.picked.size != u.tiles.size) return
-        sentenceAnswer = u.picked.joinToString("") { u.tiles[it] }
+        val spaced = u.language?.spaced == true
+        sentenceAnswer = u.picked.joinToString(if (spaced) " " else "") { u.tiles[it] }
         gradedBy = "offline"
         if (SentenceTiles.isCorrect(u.tiles, u.picked)) {
             win(feedback = null, translation = u.tileExample?.en)
@@ -451,7 +485,7 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
                 result = ResultUi(true, null, null, feedback, corrected, translation, canOverrideMeaning = false),
             )
         }
-        app.speaker.speak(word.hanzi, slow = true)
+        speakWord(word)
     }
 
     private fun fail(
@@ -473,7 +507,7 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
                 result = ResultUi(false, part, message, feedback, corrected, translation, canOverride && part == QuizPart.MEANING),
             )
         }
-        app.speaker.speak(word.hanzi, slow = true)
+        speakWord(word)
     }
 
     /** Records the word's result and deals the next word (or ends the session). */
@@ -522,9 +556,15 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun speak(text: String, slow: Boolean = false) = app.speaker.speak(SentenceTiles.display(text), slow)
+    private fun speakWord(word: Word) = app.speaker.speak(word.term, profileOf(word).javaLocale, slow = true)
 
-    private fun info(word: Word) = ClaudeGrader.WordInfo(word.hanzi, word.pinyinDisplay, word.meanings)
+    /** Speaks a word or sentence in the current word's language. */
+    fun speak(text: String, slow: Boolean = false) {
+        val profile = _ui.value.language ?: app.languages.active
+        app.speaker.speak(SentenceTiles.display(text, profile.spaced), profile.javaLocale, slow)
+    }
+
+    private fun info(word: Word) = ClaudeGrader.WordInfo(word.term, word.readingDisplay, word.meanings, profileOf(word).name)
 
     override fun onCleared() {
         speech.stop()

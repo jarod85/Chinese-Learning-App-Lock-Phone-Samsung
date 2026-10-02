@@ -52,6 +52,18 @@ val ZhLocale = LocaleList("zh-CN")
 fun hanziStyle(size: Int, weight: FontWeight = FontWeight.Normal) =
     TextStyle(fontSize = size.sp, fontWeight = weight, localeList = ZhLocale)
 
+/** Text in a language being learned, with the right glyph forms (Japanese kanji vs Chinese hanzi). */
+fun termStyle(size: Int, locale: String?, weight: FontWeight = FontWeight.Normal) =
+    TextStyle(fontSize = size.sp, fontWeight = weight, localeList = LocaleList(locale ?: "zh-CN"))
+
+/** Big display size for a word: CJK words are shown larger than long alphabetic ones. */
+fun wordDisplaySize(term: String, cjk: Boolean): Int = when {
+    cjk -> if (term.length > 3) 52 else 72
+    term.length <= 8 -> 48
+    term.length <= 14 -> 38
+    else -> 30
+}
+
 @Composable
 fun HanziTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = if (isSystemInDarkTheme()) Dark else Light, content = content)

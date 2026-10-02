@@ -192,6 +192,10 @@ object Pinyin {
         return typed.tones.zip(allowed).all { (tone, ok) -> tone in ok }
     }
 
+    /** [typedAnswerMatches] against any of a word's readings (its pinyin plus accepted alternatives such as zhīdao). */
+    fun typedMatchesAny(answer: String, readings: List<String>, hanzi: String, requireTones: Boolean): Boolean =
+        readings.any { it.isNotBlank() && typedAnswerMatches(answer, it, hanzi, requireTones) }
+
     /** Whether a dictionary reading (e.g. "shi4") fits a target syllable; neutral tone matches any. */
     fun syllableMatches(target: String, reading: String): Boolean {
         if (target.isEmpty() || reading.isEmpty()) return false

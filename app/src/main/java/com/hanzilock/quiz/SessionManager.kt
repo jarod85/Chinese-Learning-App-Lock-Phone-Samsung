@@ -17,6 +17,7 @@ enum class SessionKind { LOCK, PRACTICE }
 data class ActiveSession(
     val id: Long,
     val kind: SessionKind,
+    val lang: String = "zh",
     val target: Int,
     val rule: CompletionRule,
     val queue: List<Long>,
@@ -68,7 +69,7 @@ class SessionManager(
 
     sealed interface Start {
         data class Running(val session: ActiveSession) : Start
-        /** The registry has no enabled words. */
+        /** No enabled set has any words for the active language. */
         data object NoWords : Start
         /** A lock session was requested but nothing is due (any more). */
         data object NotNeeded : Start
@@ -86,13 +87,15 @@ class SessionManager(
             finish("completed", now)   // finished but not closed (e.g. app killed on the last word)
         }
         if (kind == SessionKind.LOCK && !lockEngine.isLockDue(now)) return Start.NotNeeded
+        val lang = settings.activeLanguage
         val wanted = settings.wordsPerSession
-        val picked = words.pickForSession(now, wanted, emptySet())
+        val picked = words.pickForSession(lang, now, wanted, emptySet())
         if (picked.isEmpty()) return Start.NoWords
-        val id = words.createSession(kind.name.lowercase(), now)
+        val id = words.createSession(kind.name.lowercase(), lang, now)
         val session = ActiveSession(
             id = id,
             kind = kind,
+            lang = lang,
             target = minOf(wanted, picked.size),
             rule = settings.completionRule,
             queue = picked.map { it.id }.shuffled(),
@@ -119,7 +122,7 @@ class SessionManager(
         )
         if (!next.isComplete && next.index >= next.queue.size) {
             // "Get N right" mode ran out of words: deal a different word, or recycle an earlier one.
-            val fresh = words.pickForSession(now, 1, next.queue.toSet()).map { it.id }
+            val fresh = words.pickForSession(s.lang, now, 1, next.queue.toSet()).map { it.id }
             val extra = fresh.ifEmpty {
                 next.queue.distinct().filter { it != outcome.wordId }.shuffled().take(1).ifEmpty { listOf(outcome.wordId) }
             }
@@ -135,7 +138,7 @@ class SessionManager(
         val s = _active.value ?: return null
         var next = s.copy(index = s.index + 1)
         if (!next.isComplete && next.index >= next.queue.size) {
-            val fresh = words.pickForSession(now, 1, next.queue.toSet()).map { it.id }
+            val fresh = words.pickForSession(s.lang, now, 1, next.queue.toSet()).map { it.id }
             next = if (fresh.isEmpty()) {
                 // Nothing left to deal: shrink the goal to what can still be reached.
                 next.copy(target = if (next.rule == CompletionRule.ATTEMPTED) next.attempted else next.wins)

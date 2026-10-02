@@ -57,6 +57,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun LockScreen(vm: QuizViewModel, onClose: () -> Unit) {
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val app = HanziLockApp.get(LocalContext.current)
     var askPin by remember { mutableStateOf(false) }
     var showEscape by remember { mutableStateOf(false) }
 
@@ -73,7 +74,7 @@ fun LockScreen(vm: QuizViewModel, onClose: () -> Unit) {
                 Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("练习时间 · Practice time", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Practice time · ${ui.language?.native ?: app.languages.active.native}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text("Finish the words to unlock your phone", style = MaterialTheme.typography.bodySmall)
                 }
                 TextButton(onClick = { askPin = true }) { Text("PIN") }

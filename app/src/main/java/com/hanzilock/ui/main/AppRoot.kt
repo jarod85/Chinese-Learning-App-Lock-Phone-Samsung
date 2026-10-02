@@ -1,5 +1,6 @@
 package com.hanzilock.ui.main
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -35,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -45,6 +47,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.hanzilock.HanziLockApp
 import com.hanzilock.data.DictEntry
 import com.hanzilock.ui.common.PinDialog
+import kotlinx.coroutines.launch
 
 sealed interface Route {
     data object Home : Route
@@ -53,11 +56,13 @@ sealed interface Route {
     data object Stats : Route
     data object Settings : Route
     data class WordDetail(val id: Long) : Route
-    data class WordEdit(val id: Long?, val prefill: DictEntry? = null) : Route
+    data class WordEdit(val id: Long?, val prefill: DictEntry? = null, val setId: Long? = null) : Route
     data object Practice : Route
     data object AllowedApps : Route
     data object PriorityEmail : Route
     data object Setup : Route
+    data object Sets : Route
+    data class SetWords(val setId: Long, val name: String) : Route
 }
 
 class Navigator(initial: Route) {
@@ -80,12 +85,13 @@ private val TABS = listOf(
 )
 
 @Composable
-fun AppRoot() {
+fun AppRoot(incoming: Uri? = null, onIncomingHandled: () -> Unit = {}) {
     val app = HanziLockApp.get(LocalContext.current)
     val nav = remember { Navigator(if (app.pin.isSet) Route.Home else Route.Setup) }
     var settingsUnlocked by remember { mutableStateOf(false) }
     var askPin by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     BackHandler(enabled = nav.stack.size > 1) { nav.back() }
 
     // Leaving the app locks the settings again.
@@ -132,13 +138,23 @@ fun AppRoot() {
                 Route.Stats -> StatsScreen(nav)
                 Route.Settings -> SettingsScreen(nav, snackbar)
                 is Route.WordDetail -> WordDetailScreen(nav, current.id)
-                is Route.WordEdit -> WordEditScreen(nav, current.id, current.prefill, snackbar)
+                is Route.WordEdit -> WordEditScreen(nav, current.id, current.prefill, snackbar, current.setId)
                 Route.Practice -> PracticeScreen(nav)
                 Route.AllowedApps -> AllowedAppsScreen(nav)
                 Route.PriorityEmail -> PriorityEmailScreen(nav)
                 Route.Setup -> SetupScreen(nav)
+                Route.Sets -> SetsScreen(nav, snackbar)
+                is Route.SetWords -> WordsScreen(nav, snackbar, setScope = current)
             }
         }
+    }
+
+    // A file shared to / opened with Lingo Lock: import it as a new set.
+    if (incoming != null && app.pin.isSet) {
+        ImportDialog(incoming, onDismiss = onIncomingHandled, onDone = { msg ->
+            onIncomingHandled()
+            scope.launch { snackbar.showSnackbar(msg) }
+        })
     }
 
     if (askPin) {

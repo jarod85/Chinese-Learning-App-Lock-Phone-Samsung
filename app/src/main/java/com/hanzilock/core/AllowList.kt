@@ -9,7 +9,7 @@ import android.view.inputmethod.InputMethodManager
 /**
  * Which apps stay usable while a practice session is due.
  *
- * Always allowed (not editable): HanziLock itself, the system UI (notification shade, volume,
+ * Always allowed (not editable): Lingo Lock itself, the system UI (notification shade, volume,
  * power menu), keyboards, permission dialogs, the phone/in-call screens, emergency services and
  * your default phone and SMS apps. On top of that you choose apps in Settings > Allowed apps
  * (defaults: contacts, clock/alarm, calendar, camera, maps, wallet). Email apps can also get a

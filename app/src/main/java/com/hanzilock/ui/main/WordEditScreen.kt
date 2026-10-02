@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -24,52 +25,61 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.hanzilock.HanziLockApp
+import com.hanzilock.data.AppJson
 import com.hanzilock.data.DictEntry
 import com.hanzilock.data.Example
 import com.hanzilock.data.WordDraft
 import com.hanzilock.quiz.ClaudeGrader
 import com.hanzilock.quiz.Pinyin
-import com.hanzilock.quiz.SpeechMatcher
 import com.hanzilock.ui.common.SectionTitle
-import com.hanzilock.ui.theme.hanziStyle
+import com.hanzilock.ui.theme.termStyle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Add or edit a word. Pinyin and meanings can be filled in from CC-CEDICT; examples from Claude. */
+/**
+ * Add or edit a word. Chinese pinyin and meanings can be filled in from CC-CEDICT; any language
+ * can get its reading, meanings and an example from Claude. New words go into [setId] (or your
+ * "My words" set).
+ */
 @Composable
-fun WordEditScreen(nav: Navigator, id: Long?, prefill: DictEntry?, snackbar: SnackbarHostState) {
+fun WordEditScreen(nav: Navigator, id: Long?, prefill: DictEntry?, snackbar: SnackbarHostState, setId: Long? = null) {
     val context = LocalContext.current
     val app = HanziLockApp.get(context)
     val scope = rememberCoroutineScope()
 
+    var lang by rememberSaveable { mutableStateOf(if (prefill != null) "zh" else app.settings.activeLanguage) }
     var loaded by rememberSaveable { mutableStateOf(false) }
-    var hanzi by rememberSaveable { mutableStateOf(prefill?.simplified.orEmpty()) }
+    var term by rememberSaveable { mutableStateOf(prefill?.simplified.orEmpty()) }
     var traditional by rememberSaveable { mutableStateOf(prefill?.let { p -> p.traditional.takeIf { it != p.simplified } }.orEmpty()) }
-    var pinyin by rememberSaveable { mutableStateOf(prefill?.pinyinMarked.orEmpty()) }
+    var reading by rememberSaveable { mutableStateOf(prefill?.pinyinMarked.orEmpty()) }
     var meanings by rememberSaveable { mutableStateOf(prefill?.definitions?.take(4)?.joinToString("\n").orEmpty()) }
-    var exZh by rememberSaveable { mutableStateOf("") }
-    var exPinyin by rememberSaveable { mutableStateOf("") }
+    var exText by rememberSaveable { mutableStateOf("") }
+    var exReading by rememberSaveable { mutableStateOf("") }
     var exEn by rememberSaveable { mutableStateOf("") }
     var tags by rememberSaveable { mutableStateOf("") }
     var busy by rememberSaveable { mutableStateOf(false) }
     var moreExamples by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var forms by rememberSaveable { mutableStateOf(emptyList<String>()) }
 
     LaunchedEffect(id) {
         if (id == null || loaded) return@LaunchedEffect
         val w = withContext(Dispatchers.IO) { app.words.get(id) } ?: return@LaunchedEffect
-        hanzi = w.hanzi
+        lang = w.lang
+        term = w.term
         traditional = w.traditional.orEmpty()
-        pinyin = w.pinyin
+        reading = w.reading
         meanings = w.meanings.joinToString("\n")
-        w.examples.firstOrNull()?.let { exZh = it.zh; exPinyin = it.pinyin.orEmpty(); exEn = it.en.orEmpty() }
-        moreExamples = w.examples.drop(1).map { com.hanzilock.data.AppJson.encodeToString(Example.serializer(), it) }
+        w.examples.firstOrNull()?.let { exText = it.text; exReading = it.reading.orEmpty(); exEn = it.en.orEmpty() }
+        moreExamples = w.examples.drop(1).map { AppJson.encodeToString(Example.serializer(), it) }
+        forms = w.forms
         tags = w.tags.joinToString(", ")
         loaded = true
     }
+    val profile = remember(lang) { app.languages.get(lang) }
 
     fun fillFromDictionary() {
-        val key = hanzi.trim()
+        val key = term.trim()
         if (key.isEmpty()) return
         scope.launch {
             val entry = withContext(Dispatchers.IO) { app.dictionary.lookup(key).firstOrNull() }
@@ -77,37 +87,52 @@ fun WordEditScreen(nav: Navigator, id: Long?, prefill: DictEntry?, snackbar: Sna
                 snackbar.showSnackbar(if (app.dictionary.isReady) "$key isn't in CC-CEDICT." else "The dictionary is still loading.")
                 return@launch
             }
-            pinyin = entry.pinyinMarked
+            reading = entry.pinyinMarked
             meanings = entry.definitions.take(4).joinToString("\n")
             if (traditional.isBlank() && entry.traditional != entry.simplified) traditional = entry.traditional
+            if (exText.isBlank()) app.corpus.find(key, 1).firstOrNull()?.let { exText = it.text; exEn = it.en.orEmpty() }
         }
     }
 
-    fun generateExample() {
+    fun askClaude() {
         val grader = app.graderOrNull() ?: run {
-            scope.launch { snackbar.showSnackbar("Add a Claude API key in Settings (and be online) to generate examples.") }
+            scope.launch { snackbar.showSnackbar("Add a Claude API key in Settings (and be online) to fill words in automatically.") }
             return
         }
         busy = true
         scope.launch {
+            val need = meanings.isBlank() || reading.isBlank() && profile.canTypeReading
             val r = withContext(Dispatchers.IO) {
                 runCatching {
-                    grader.generateExample(ClaudeGrader.WordInfo(hanzi.trim(), Pinyin.display(pinyin), meanings.lines().filter { it.isNotBlank() }))
+                    if (need) {
+                        grader.describeWords(profile.name, listOf(term.trim())).firstOrNull()?.let { d ->
+                            Triple(d.reading, d.meanings, Example(d.example, null, d.exampleTranslation))
+                        }
+                    } else {
+                        val ex = grader.generateExample(
+                            ClaudeGrader.WordInfo(term.trim(), reading, meanings.lines().filter { it.isNotBlank() }, profile.name),
+                        )
+                        Triple("", emptyList<String>(), Example(ex.zh, ex.pinyin.ifBlank { null }, ex.en))
+                    }
                 }
             }
             busy = false
-            r.onSuccess { exZh = it.zh; exPinyin = it.pinyin; exEn = it.en }
-                .onFailure { snackbar.showSnackbar(it.message ?: "Couldn't generate an example.") }
+            r.onSuccess { t ->
+                if (t == null) return@onSuccess
+                if (reading.isBlank() && t.first.isNotBlank()) reading = t.first
+                if (meanings.isBlank() && t.second.isNotEmpty()) meanings = t.second.joinToString("\n")
+                if (t.third.text.isNotBlank()) { exText = t.third.text; exReading = t.third.reading.orEmpty(); exEn = t.third.en.orEmpty() }
+            }.onFailure { snackbar.showSnackbar(it.message ?: "Claude couldn't help with this word.") }
         }
     }
 
     fun save() {
-        val h = hanzi.trim()
+        val t = term.trim()
         val meaningList = meanings.lines().map { it.trim() }.filter { it.isNotEmpty() }
-        val normalizedPinyin = Pinyin.normalizeToMarked(pinyin).ifEmpty { pinyin.trim() }
+        val normalizedReading = if (lang == "zh") Pinyin.normalizeToMarked(reading).ifEmpty { reading.trim() } else reading.trim()
         val error = when {
-            SpeechMatcher.hanOnly(h).isEmpty() -> "Enter the word in Chinese characters."
-            normalizedPinyin.isBlank() -> "Enter the pinyin (or fill it from the dictionary)."
+            t.isEmpty() -> "Enter the word."
+            lang == "zh" && normalizedReading.isBlank() -> "Enter the pinyin (or fill it from the dictionary)."
             meaningList.isEmpty() -> "Enter at least one meaning."
             else -> null
         }
@@ -116,70 +141,95 @@ fun WordEditScreen(nav: Navigator, id: Long?, prefill: DictEntry?, snackbar: Sna
             return
         }
         val examples = buildList {
-            if (exZh.isNotBlank()) add(Example(exZh.trim(), exPinyin.trim().ifEmpty { null }, exEn.trim().ifEmpty { null }))
-            moreExamples.forEach { json ->
-                runCatching { com.hanzilock.data.AppJson.decodeFromString(Example.serializer(), json) }.getOrNull()?.let(::add)
-            }
+            if (exText.isNotBlank()) add(Example(exText.trim(), exReading.trim().ifEmpty { null }, exEn.trim().ifEmpty { null }))
+            moreExamples.forEach { json -> runCatching { AppJson.decodeFromString(Example.serializer(), json) }.getOrNull()?.let(::add) }
         }
         val draft = WordDraft(
-            hanzi = h,
+            lang = lang,
+            term = t,
             traditional = traditional.trim().ifEmpty { null },
-            pinyin = normalizedPinyin,
+            reading = normalizedReading,
             meanings = meaningList,
             examples = examples,
+            forms = forms,
             tags = tags.split(',').map { it.trim() }.filter { it.isNotEmpty() },
         )
         scope.launch {
-            val message = withContext(Dispatchers.IO) {
+            // (message, close the screen?)
+            val (message, done) = withContext(Dispatchers.IO) {
                 if (id == null) {
-                    if (app.words.byHanzi(h) != null) "$h is already in your list." else { app.words.insert(draft, "user"); null }
+                    val target = setId ?: app.words.myWordsSet(lang)
+                    val existing = app.words.find(lang, t)
+                    if (existing != null) {
+                        // Already known from another set (e.g. HSK 4): share it, keeping its progress.
+                        app.words.addToSet(target, existing.id)
+                        "Added $t - it was already in another set, so its progress is kept." to true
+                    } else {
+                        app.words.insert(draft, "user", target)
+                        null to true
+                    }
                 } else {
-                    val clash = app.words.byHanzi(h)
-                    if (clash != null && clash.id != id) "$h is already in your list." else { app.words.update(id, draft); null }
+                    val clash = app.words.find(lang, t)
+                    if (clash != null && clash.id != id) {
+                        "$t is already in your words." to false
+                    } else {
+                        app.words.update(id, draft)
+                        null to true
+                    }
                 }
             }
-            if (message != null) snackbar.showSnackbar(message) else nav.back()
+            if (done) nav.back()
+            if (message != null) snackbar.showSnackbar(message)
         }
     }
 
-    ScreenScaffold(title = if (id == null) "Add word" else "Edit word", onBack = nav::back) { padding ->
+    ScreenScaffold(title = if (id == null) "Add ${profile.name} word" else "Edit word", onBack = nav::back) { padding ->
         Column(
             Modifier.padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             OutlinedTextField(
-                value = hanzi, onValueChange = { hanzi = it }, label = { Text("Word (simplified)") },
-                textStyle = hanziStyle(24), singleLine = true, modifier = Modifier.fillMaxWidth(),
+                value = term, onValueChange = { term = it }, label = { Text(if (lang == "zh") "Word (simplified)" else "Word") },
+                textStyle = termStyle(if (profile.cjk) 24 else 20, profile.locale), singleLine = true, modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedButton(onClick = ::fillFromDictionary, enabled = hanzi.isNotBlank()) { Text("Fill pinyin & meaning from dictionary") }
-            OutlinedTextField(
-                value = traditional, onValueChange = { traditional = it }, label = { Text("Traditional (optional)") },
-                textStyle = hanziStyle(18), singleLine = true, modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = pinyin, onValueChange = { pinyin = it }, label = { Text("Pinyin (xué xí or xue2 xi2)") },
-                singleLine = true, modifier = Modifier.fillMaxWidth(),
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (lang == "zh") OutlinedButton(onClick = ::fillFromDictionary, enabled = term.isNotBlank()) { Text("Fill from dictionary") }
+                OutlinedButton(onClick = ::askClaude, enabled = !busy && term.isNotBlank()) { Text(if (busy) "Asking Claude…" else "Fill in with Claude") }
+            }
+            if (lang == "zh") {
+                OutlinedTextField(
+                    value = traditional, onValueChange = { traditional = it }, label = { Text("Traditional (optional)") },
+                    textStyle = termStyle(18, profile.locale), singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            if (profile.readingLabel != null || reading.isNotBlank()) {
+                OutlinedTextField(
+                    value = reading, onValueChange = { reading = it },
+                    label = { Text(if (lang == "zh") "Pinyin (xué xí or xue2 xi2)" else if (lang == "ja") "Reading (hiragana)" else "Reading") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+            }
             OutlinedTextField(
                 value = meanings, onValueChange = { meanings = it }, label = { Text("English meanings, one per line") },
                 minLines = 2, modifier = Modifier.fillMaxWidth(),
             )
             SectionTitle("Example sentence")
-            Text(
-                "Put spaces between words (我 每天 学习 汉语。) - offline practice turns them into word tiles.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedTextField(
-                value = exZh, onValueChange = { exZh = it }, label = { Text("Chinese") },
-                textStyle = hanziStyle(18), modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(value = exPinyin, onValueChange = { exPinyin = it }, label = { Text("Pinyin (optional)") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(value = exEn, onValueChange = { exEn = it }, label = { Text("English") }, modifier = Modifier.fillMaxWidth())
-            OutlinedButton(onClick = ::generateExample, enabled = !busy && hanzi.isNotBlank() && meanings.isNotBlank()) {
-                Text(if (busy) "Asking Claude…" else "Suggest an example with Claude")
+            if (lang == "zh") {
+                Text(
+                    "Put spaces between words (我 每天 学习 汉语。) - offline practice turns them into word tiles.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            OutlinedTextField(value = tags, onValueChange = { tags = it }, label = { Text("Tags, comma separated (e.g. HSK2, work)") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(
+                value = exText, onValueChange = { exText = it }, label = { Text(profile.name) },
+                textStyle = termStyle(18, profile.locale), modifier = Modifier.fillMaxWidth(),
+            )
+            if (profile.readingLabel != null) {
+                OutlinedTextField(value = exReading, onValueChange = { exReading = it }, label = { Text("Reading (optional)") }, modifier = Modifier.fillMaxWidth())
+            }
+            OutlinedTextField(value = exEn, onValueChange = { exEn = it }, label = { Text("English") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = tags, onValueChange = { tags = it }, label = { Text("Tags, comma separated (e.g. work, food)") }, modifier = Modifier.fillMaxWidth())
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
                 Button(onClick = ::save) { Text("Save") }
             }

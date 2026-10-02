@@ -136,7 +136,7 @@ if (-not (Test-Path $ksProps)) {
     Invoke-Native {
         & $keytool -genkeypair -keystore $ksFile -storetype PKCS12 -alias hanzilock `
             -keyalg RSA -keysize 2048 -validity 36500 -storepass $pw -keypass $pw `
-            -dname 'CN=HanziLock, O=Personal'
+            -dname 'CN=Lingo Lock, O=Personal'
     }
     if (-not (Test-Path $ksFile)) { throw 'keytool failed to create the signing key' }
     @(

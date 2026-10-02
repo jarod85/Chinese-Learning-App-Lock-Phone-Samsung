@@ -1,6 +1,10 @@
 # Repo-local build toolchain (JDK + Android SDK), created by tools/setup-toolchain.ps1
 .toolchain/
 
+# Downloaded source datasets used by tools/sets.py (re-downloadable; the generated sets are committed)
+.cache/
+__pycache__/
+
 # Gradle / Android build outputs
 .gradle/
 .kotlin/
