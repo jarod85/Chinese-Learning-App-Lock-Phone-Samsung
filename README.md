@@ -19,6 +19,10 @@ Italian**, and you can add other languages from the phone. Words are organised P
 switch on and off. Your own lists become sets of their own, so they never mix into the built-in levels, and a
 file with just the words is enough: readings, meanings and example sentences are filled in automatically.
 
+Every word also has a **learning mode** guided by Claude: it explains the word only in the language you're
+learning (no English), shows how it's used with example sentences, then corrects three sentences you write
+yourself, without grading them.
+
 Phone calls, alarms, your calendar, SMS, emergency SOS, notifications and any apps you allow **keep working while
 locked**. Emails from senders or accounts you choose can be opened too.
 
@@ -35,6 +39,7 @@ locked**. Emails from senders or accounts you choose can be opened too.
 - [Adding your own words](#adding-your-own-words)
 - [How the built-in sets are made](#how-the-built-in-sets-are-made)
 - [AI grading with Claude (optional)](#ai-grading-with-claude-optional)
+- [Learning mode](#learning-mode)
 - [Emergency exits](#emergency-exits)
 - [Limitations](#limitations)
 - [Project layout and development](#project-layout-and-development)
@@ -112,18 +117,48 @@ disturbed, and falls back to the one in `.toolchain`.
 
 ## Updating the app
 
-Changed something in the repo (new words, a code change, a `git pull`)? **Double-click `update-phone.cmd`**
-(or run `.\tools\install.ps1`). It rebuilds the app and installs it over the one on the phone:
+Updates come **over the internet, without a cable**. Every build is published as a release of this GitHub
+repository; Lingo Lock checks for a newer one whenever you open it and shows **Update available** on the Home
+screen (or *Settings > App updates > Check for updates*). Tap **Install** and confirm with **Update**.
 
-- Your progress, stats, settings, PIN and the words and sets you added on the phone are kept.
+- Your progress, stats, settings, PIN and the words and sets you added on the phone are kept: the update is
+  signed with your own key, so Android installs it over the app.
+- The first time, Android asks you to allow Lingo Lock to install apps: tap **Allow**, turn on *Allow from this
+  source*, come back and tap **Install** again.
+- Auto Blocker must stay off (*Settings > Security and privacy > Auto Blocker*): it blocks installs from
+  anywhere but the Galaxy Store and Play Store.
 - Updated built-in sets are merged in: new words are added, and words you haven't edited on the phone get the
   new content. Your progress on them is never touched.
 - *Settings > About* shows the build number, so you can check the update landed. It goes up with every commit.
-- The phone needs USB debugging on and Auto Blocker off, as for the first install. `update-phone.cmd -NoBuild`
-  reinstalls the last build without rebuilding.
 
-**Without a cable:** on the phone, *Developer options > Wireless debugging > Pair device with pairing code*,
-then on the PC (same Wi-Fi):
+**Publishing builds.** Choose one of the two, once:
+
+- **Cloud builds (recommended):** GitHub builds the app on every push to `main`
+  ([`.github/workflows/release.yml`](.github/workflows/release.yml)), so you don't need the PC at all, e.g.
+  when you ask Claude Code on the web for a change. One-time setup on the PC, with the
+  [GitHub CLI](https://cli.github.com) (`winget install --id GitHub.cli`, then `gh auth login`):
+
+  ```powershell
+  .\tools\setup-cloud-builds.ps1
+  ```
+
+  It stores your signing key (`keystore\`) as encrypted secrets of the repository, so the cloud builds are
+  signed like your PC's. A build takes about 5-10 minutes after a push. Until the secrets exist, the workflow
+  skips the build.
+- **Build on the PC:** keeps the signing key on your PC only. Commit and push, then:
+
+  ```powershell
+  .\tools\publish.ps1
+  ```
+
+The version that adds in-app updates has to be installed one last time with the cable (below). After that,
+updates come through the app.
+
+**With a cable** (first install, or if GitHub isn't set up): **double-click `update-phone.cmd`** (or run
+`.\tools\install.ps1`). It rebuilds the app and installs it over the one on the phone. The phone needs USB
+debugging on and Auto Blocker off, as for the first install. `update-phone.cmd -NoBuild` reinstalls the last
+build without rebuilding. Wireless debugging works too: on the phone, *Developer options > Wireless debugging >
+Pair device with pairing code*, then on the PC (same Wi-Fi):
 
 ```powershell
 .\.toolchain\android-sdk\platform-tools\adb.exe pair 192.168.1.23:37000
@@ -135,7 +170,6 @@ then on the PC (same Wi-Fi):
 
 Use the addresses your phone shows: `pair` takes the address in the pairing dialog and asks for its 6-digit
 code, and `connect` takes the *IP address & port* on the Wireless debugging screen (a different port).
-After that, `update-phone.cmd` installs over Wi-Fi.
 
 Before an update that changes a lot, a backup costs nothing: *Settings > Backup*.
 
@@ -171,6 +205,7 @@ Then switch the lock on from the Home tab. Use **Lock now (test)** to try it imm
   long vowels in Japanese); allow skipping pronunciation for languages without a typed reading; and whether you
   can override the offline meaning check ("I was right", after which your answer is accepted for that word).
 - **AI grading:** Anthropic API key, model and mode (see below).
+- **App updates:** check for and install a new build (see [Updating the app](#updating-the-app)).
 - **Your words & progress:** a full backup of every language, set, word and your history. Restore it by
   importing the file (*Words > Import*).
 
@@ -183,10 +218,13 @@ built-in levels. Words you already have (in any set) are linked rather than dupl
 Everything else is filled in automatically:
 
 - **Chinese:** pinyin and meanings from CC-CEDICT, example sentences from the bundled Tatoeba corpus.
-- **Every language:** words that are in the built-in sets reuse their content. For the rest, Claude writes the
-  reading, meaning and an example sentence if you've added an API key. Otherwise they wait, marked
-  *incomplete* and left out of practice, until you fill them in on the word's page (*Fill in with Claude* or
-  by hand).
+- **Every language:** words that are in the built-in sets reuse their content.
+- **With a Claude API key** (and online), Claude adds whatever is still missing to every word you add, by
+  import or one at a time: the reading (pinyin for Chinese), meanings, and an example sentence **with its
+  pinyin** (kana for Japanese) and English translation. Words that arrive another way, e.g. a set imported on
+  the PC, are filled in the next time you open the app.
+- Without Claude, words with no meaning wait, marked *incomplete* and left out of practice, until you fill them
+  in on the word's page (*Fill in with Claude* or by hand).
 
 **On the phone:** tap **Import** on the Sets or Words screen, or **share** a `.csv` / `.txt` file to Lingo Lock
 (or open it with Lingo Lock from My Files), or **drag** it onto the Sets or Words screen in split screen or DeX.
@@ -223,6 +261,8 @@ python tools\sets.py import comida.csv --lang es --name "Food"
   app, e.g. to keep it safe or put it on another phone.
 
 On the phone you can also add single words from the Dictionary tab (**+**) or with **+** on the Words tab.
+Type the word: for Chinese the pinyin and meanings fill in from CC-CEDICT as you type, and after you save,
+Claude adds an example sentence with its pinyin. With Claude, the word alone is enough for any language.
 
 ## How the built-in sets are made
 
@@ -258,13 +298,29 @@ A free-form sentence can't be checked properly without a language model, so Ling
   default model is `claude-opus-5-5`, called with low effort for a quick verdict.
 - Claude checks that your sentence contains the word, is grammatical and uses the word in the right sense. It
   explains what's wrong, suggests a better version, and translates your sentence. It is also asked when the
-  offline meaning check rejects an answer, which catches valid synonyms, and it fills in words you import that
-  aren't in any dictionary or set.
+  offline meaning check rejects an answer, which catches valid synonyms. It also fills in what new words are
+  missing (example sentences with their pinyin, readings, meanings) and runs [learning mode](#learning-mode).
 - Requests use the API's server-side refusal fallback (`fallbacks: "default"`), so a request declined by a safety
   classifier is retried on Anthropic's recommended fallback model rather than failing.
 - Each graded sentence is one small API call billed to your key. If you're offline, or the call fails, the app
   falls back to the tile exercise, so you're never stuck.
 - The key is stored only in the app's private storage on the phone.
+
+## Learning mode
+
+Every word has a **Learn with Claude** button on its page (*Words* > tap a word), and after you answer a word
+in a practice or lock session, **Learn this word with Claude** opens the same lesson over the quiz (*Back to
+the quiz* returns to it). The lesson is written **only in the language you're learning, without English**:
+
+1. **What it means:** a short explanation in simple words.
+2. **How to use it:** the usual patterns and words it goes with, plus three example sentences with audio.
+3. **Your turn:** you write three sentences of your own with the word. Claude says what's wrong and gives a
+   corrected version. Nothing is graded: a wrong sentence still counts, and the word's review schedule and
+   stats don't change. You can keep writing more after the three.
+
+For Chinese and Japanese, *Show pinyin* / *Show reading* puts the pinyin (or kana) under every sentence. Each
+lesson and each checked sentence is one API call billed to your key. Learning mode needs the API key and a
+connection, and isn't available when AI grading is set to *Always offline*.
 
 ## Emergency exits
 
@@ -304,11 +360,15 @@ app/src/main/java/com/hanzilock/
   lock/     accessibility service (gate), lock activity, priority-email notification listener
   core/     settings, languages, schedule/lock engine, allow list, master PIN
   quiz/     pinyin, kana, answer/speech matching, sentence tiles, spaced repetition, sessions, Claude grader
-  data/     SQLite (words, sets, sessions, attempts), CC-CEDICT, set sync, language packs, import/export
+  data/     SQLite (words, sets, sessions, attempts), CC-CEDICT, set sync, language packs, import/export,
+            filling in new words with Claude
   speech/   speech recognition + text-to-speech wrappers
-  ui/       Jetpack Compose screens
+  update/   in-app updates from GitHub releases
+  ui/       Jetpack Compose screens (ui/learn: learning mode)
 app/src/test/                 JVM unit tests (pinyin, kana, matchers, tiles, schedule, import, bundled sets)
-tools/                        setup-toolchain / build / install / update-cedict (PowerShell), sets.py
+tools/                        setup-toolchain / build / install / update-cedict / publish / setup-cloud-builds
+                              (PowerShell), sets.py
+.github/workflows/release.yml cloud build + GitHub release on every push to main
 update-phone.cmd, add-words.cmd   double-click helpers for the two everyday jobs
 ```
 

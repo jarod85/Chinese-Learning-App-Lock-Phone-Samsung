@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.hanzilock.core.Languages
-import com.hanzilock.quiz.ClaudeGrader
 import com.hanzilock.quiz.Pinyin
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -20,7 +19,7 @@ class ImportExport(
     private val dictionary: DictionaryRepository,
     private val corpus: ExampleCorpus,
     private val languages: Languages,
-    private val grader: () -> ClaudeGrader?,
+    private val filler: WordFiller,
 ) {
     data class ImportResult(
         val setName: String?,
@@ -50,11 +49,11 @@ class ImportExport(
         val text = context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
             ?: error("Couldn't open the file")
         val trimmed = text.trimStart(ImportParser.BOM, ' ', '\n', '\r', '\t')
-        if (trimmed.startsWith("{")) return importJson(trimmed, lang, setName)
+        if (trimmed.startsWith("{")) return importJson(trimmed, lang, setName, progress)
         return importWords(ImportParser.parseText(text), lang, setName, progress)
     }
 
-    private fun importJson(json: String, lang: String, setName: String): ImportResult {
+    private fun importJson(json: String, lang: String, setName: String, progress: (String) -> Unit): ImportResult {
         val root = AppJson.parseToJsonElement(json).jsonObject
         if (root["format"]?.jsonPrimitive?.content == "hanzilock-backup") {
             val backup = AppJson.decodeFromString<Backup>(json)
@@ -68,7 +67,10 @@ class ImportExport(
         val key = file.key.takeIf { it.isNotBlank() && words.setByKey(it)?.custom != false }
             ?: "custom.$fileLang.${System.currentTimeMillis()}"
         words.applySet(SetInfo(key, fileLang, name, "Custom", 100, custom = true, enabled = true), file, bundled = false)
-        val incomplete = file.words.filter { it.meanings.isEmpty() }.map { it.term }
+        val setId = words.setByKey(key)?.id ?: error("Set not saved")
+        val members = words.list(fileLang, scope = WordScope.InSet(setId), limit = Int.MAX_VALUE)
+        filler.fill(fileLang, members.map { it.id }, progress)
+        val incomplete = words.list(fileLang, WordFilter.INCOMPLETE, scope = WordScope.InSet(setId)).map { it.term }
         return ImportResult(name, fileLang, file.words.size, 0, file.words.size - incomplete.size, incomplete)
     }
 
@@ -78,48 +80,22 @@ class ImportExport(
         val setId = words.createSet(lang, setName)
         var linked = 0
         var filled = 0
-        val needHelp = ArrayList<Long>()
+        val added = ArrayList<Long>()
         parsed.forEachIndexed { i, p ->
             if (i % 25 == 0) progress("Adding words… ${i + 1}/${parsed.size}")
             val existing = words.find(lang, p.term) ?: words.find(lang, p.term.lowercase())
             if (existing != null) {
                 words.addToSet(setId, existing.id)
+                added.add(existing.id)
                 linked++
                 return@forEachIndexed
             }
             val draft = complete(p, lang)
-            val id = words.insert(draft, "import", setId)
+            added.add(words.insert(draft, "import", setId))
             if (draft.meanings.isNotEmpty()) filled++
-            if (draft.meanings.isEmpty() || draft.examples.isEmpty() || draft.reading.isEmpty() && languages.get(lang).canTypeReading) {
-                needHelp.add(id)
-            }
         }
-        val claude = grader()
-        if (claude != null && needHelp.isNotEmpty()) {
-            val languageName = languages.get(lang).name
-            needHelp.chunked(20).forEachIndexed { n, chunk ->
-                progress("Asking Claude to fill in details… ${n * 20 + 1}-${n * 20 + chunk.size} of ${needHelp.size}")
-                val batch = chunk.mapNotNull { words.get(it) }
-                val described = runCatching { claude.describeWords(languageName, batch.map { it.term }) }.getOrNull().orEmpty()
-                for (w in batch) {
-                    val d = described.firstOrNull { it.term == w.term } ?: continue
-                    val wasEmpty = w.meanings.isEmpty()
-                    words.complete(
-                        w.id,
-                        reading = d.reading.takeIf { w.reading.isBlank() && it.isNotBlank() }?.let {
-                            if (lang == "zh") Pinyin.normalizeToMarked(it).ifEmpty { it } else it
-                        },
-                        meanings = if (wasEmpty) d.meanings else emptyList(),
-                        examples = if (w.examples.isEmpty() && d.example.isNotBlank()) {
-                            listOf(Example(d.example, null, d.exampleTranslation.ifBlank { null }))
-                        } else {
-                            emptyList()
-                        },
-                    )
-                    if (wasEmpty && d.meanings.isNotEmpty()) filled++
-                }
-            }
-        }
+        // Readings, meanings and example sentences (with their reading) that are still missing come from Claude.
+        filled += filler.fill(lang, added, progress).gotMeaning
         val incomplete = words.list(lang, WordFilter.INCOMPLETE, scope = WordScope.InSet(setId)).map { it.term }
         return ImportResult(setName, lang, parsed.size, linked, filled, incomplete)
     }
@@ -135,7 +111,8 @@ class ImportExport(
         return WordDraft(lang, p.term, p.traditional, p.reading.orEmpty(), p.meaning?.let { listOf(it) }.orEmpty(), emptyList())
     }
 
-    private fun cleanDefinitions(defs: List<String>): List<String> {
+    /** The useful CC-CEDICT senses of a word, at most four (no measure words, surnames or variants). */
+    fun cleanDefinitions(defs: List<String>): List<String> {
         val useful = defs.filterNot { it.startsWith("CL:") || it.startsWith("surname ") || it.contains("variant of") }
             .map { it.replace(Regex("\\s*\\(CL:[^)]*\\)"), "") }
         // Slang and archaic senses only when there's nothing else (机场 is "airport", not a VPN service).

@@ -192,7 +192,8 @@ fun SettingsScreen(nav: Navigator, snackbar: SnackbarHostState) {
             // ---- Claude ----
             SectionTitle("AI grading (Claude)")
             Text(
-                "Optional. With an Anthropic API key, Claude grades the sentences you write and double-checks meanings. " +
+                "Optional. With an Anthropic API key, Claude grades the sentences you write and double-checks meanings, " +
+                    "fills in new words (example sentences with their pinyin) and guides learning mode. " +
                     "Without it (or offline) you rebuild the stored example sentence from word tiles instead. " +
                     "Each graded sentence is one small API call billed to your key.",
                 style = MaterialTheme.typography.bodySmall,
@@ -257,6 +258,9 @@ fun SettingsScreen(nav: Navigator, snackbar: SnackbarHostState) {
             SectionTitle("Security & setup")
             NavRow("Change master PIN", null) { changePin = true }
             NavRow("Setup checklist", "Permissions Samsung needs for the lock") { nav.go(Route.Setup) }
+
+            SectionTitle("App updates")
+            UpdatePanel(always = true)
 
             SectionTitle("About")
             Text(

@@ -21,6 +21,14 @@ val commitCount: Int = runCatching {
     providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }.standardOutput.asText.get().trim().toInt()
 }.getOrDefault(1)
 
+// The GitHub repository ("owner/name") the app downloads new builds from, taken from the git remote.
+// Empty (e.g. no git or not a GitHub remote) switches the in-app updater off.
+val updateRepo: String = runCatching {
+    providers.exec { commandLine("git", "remote", "get-url", "origin") }.standardOutput.asText.get().trim()
+}.getOrDefault("").let { url ->
+    Regex("""github\.com[/:]([^/]+/[^/]+?)(\.git)?/?$""").find(url)?.groupValues?.get(1).orEmpty()
+}
+
 android {
     namespace = "com.hanzilock"
     compileSdk = 35
@@ -31,7 +39,8 @@ android {
         minSdk = 31
         targetSdk = 35
         versionCode = commitCount
-        versionName = "1.1.0"
+        versionName = "1.2.0"
+        buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
     }
 
     signingConfigs {

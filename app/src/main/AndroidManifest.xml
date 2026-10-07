@@ -16,6 +16,8 @@
     <!-- Ask to be exempt from battery optimisation so Samsung doesn't put the app to sleep. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Updates without a cable: installs new builds downloaded from GitHub (you confirm each one). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <queries>
         <intent>
@@ -92,6 +94,11 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!-- Result of installing an update downloaded from GitHub. -->
+        <receiver
+            android:name=".update.UpdateReceiver"
+            android:exported="false" />
 
         <!-- Optional: lets notifications from chosen email accounts/senders open while locked. -->
         <service

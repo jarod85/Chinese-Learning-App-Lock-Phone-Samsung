@@ -92,6 +92,13 @@ class WordRepository(private val helper: AppDatabase) {
     private fun find(d: SQLiteDatabase, lang: String, term: String): Word? =
         d.rawQuery("SELECT * FROM words WHERE lang=? AND term=?", arrayOf(lang, term)).mapRows { it.toWord() }.firstOrNull()
 
+    /** Words in your own sets (imports, "My words") with an id above [afterId], oldest first. */
+    fun customSetWordsAfter(afterId: Long): List<Word> = db.rawQuery(
+        "SELECT w.* FROM words w WHERE w.id>? AND " +
+            "EXISTS (SELECT 1 FROM set_words sw JOIN sets s ON s.id=sw.set_id WHERE sw.word_id=w.id AND s.custom=1) ORDER BY w.id",
+        arrayOf(afterId.toString()),
+    ).mapRows { it.toWord() }
+
     fun countPractising(lang: String): Int = db.rawQuery(
         "SELECT COUNT(*) FROM words w WHERE w.lang=? AND w.enabled=1 AND w.meanings<>'[]' AND " +
             "EXISTS (SELECT 1 FROM set_words sw JOIN sets s ON s.id=sw.set_id WHERE sw.word_id=w.id AND s.enabled=1)",
@@ -307,7 +314,12 @@ class WordRepository(private val helper: AppDatabase) {
         w.traditional?.let { put("traditional", it) }
         if (!w.reading.isNullOrBlank()) put("reading", w.reading.trim())
         if (w.meanings.isNotEmpty()) put("meanings", AppJson.encodeToString(w.meanings))
-        if (w.examples.isNotEmpty()) put("examples", AppJson.encodeToString(w.examples))
+        if (w.examples.isNotEmpty()) {
+            // Keep sentences Claude added with their reading if the file has none with a reading.
+            val withReading = current.examples.filter { ex -> !ex.reading.isNullOrBlank() && w.examples.none { it.text == ex.text } }
+            val keep = if (w.examples.any { !it.reading.isNullOrBlank() }) emptyList() else withReading
+            put("examples", AppJson.encodeToString(keep + w.examples))
+        }
         if (w.forms.isNotEmpty()) put("forms", AppJson.encodeToString(w.forms))
         put("tags", AppJson.encodeToString((current.tags + w.tags).distinct()))
         put("updated_at", System.currentTimeMillis())

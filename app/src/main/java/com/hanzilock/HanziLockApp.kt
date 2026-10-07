@@ -17,15 +17,18 @@ import com.hanzilock.data.ExampleCorpus
 import com.hanzilock.data.ImportExport
 import com.hanzilock.data.LanguagePacks
 import com.hanzilock.data.SetSync
+import com.hanzilock.data.WordFiller
 import com.hanzilock.data.WordRepository
 import com.hanzilock.quiz.ClaudeGrader
 import com.hanzilock.quiz.SessionManager
 import com.hanzilock.speech.Speaker
+import com.hanzilock.update.AppUpdater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** App-wide singletons, shared by the UI, the accessibility service and the notification listener. */
@@ -42,8 +45,10 @@ class HanziLockApp : Application() {
     lateinit var sessions: SessionManager private set
     lateinit var setSync: SetSync private set
     lateinit var languagePacks: LanguagePacks private set
+    lateinit var filler: WordFiller private set
     lateinit var importExport: ImportExport private set
     lateinit var speaker: Speaker private set
+    lateinit var updater: AppUpdater private set
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -68,14 +73,26 @@ class HanziLockApp : Application() {
         sessions = SessionManager(settings, words, lockEngine)
         setSync = SetSync(this, words, languages, settings)
         languagePacks = LanguagePacks(words, languages)
-        importExport = ImportExport(this, words, dictionary, corpus, languages) { graderOrNull() }
+        filler = WordFiller(words, languages, settings) { graderOrNull() }
+        importExport = ImportExport(this, words, dictionary, corpus, languages, filler)
         speaker = Speaker(this)   // started now so audio is ready for the first word
+        updater = AppUpdater(this, scope)
 
         scope.launch(Dispatchers.IO) {
             runCatching { setSync.syncAll(onActiveReady = { _ready.value = true }) }
             _ready.value = true
             dictionary.ensureImported()
         }
+        // Words that reached your own sets without their details (e.g. a set imported on the PC).
+        scope.launch(Dispatchers.IO) {
+            ready.first { it }
+            runCatching { filler.fillNewWords() }
+        }
+    }
+
+    /** Claude fills in what the words [ids] are missing (reading, meanings, example), without blocking. */
+    fun fillInBackground(lang: String, ids: Collection<Long>) {
+        scope.launch(Dispatchers.IO) { runCatching { filler.fill(lang, ids) } }
     }
 
     /** Practice sessions (and the word list) switch to [code]; its first set is turned on if none is. */

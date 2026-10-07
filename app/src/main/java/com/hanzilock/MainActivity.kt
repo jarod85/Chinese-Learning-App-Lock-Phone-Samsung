@@ -39,7 +39,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (HanziLockApp.get(this).lockEngine.isLockDue()) LockActivity.launch(this)
+        val app = HanziLockApp.get(this)
+        if (app.lockEngine.isLockDue()) LockActivity.launch(this)
+        app.updater.checkIfDue()
     }
 
     private fun fileFrom(intent: Intent?): Uri? = when (intent?.action) {

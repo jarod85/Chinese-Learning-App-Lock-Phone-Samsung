@@ -83,6 +83,9 @@ class AllowList(
             "com.android.intentresolver",
             "com.android.permissioncontroller",
             "com.google.android.permissioncontroller",
+            // "Update this app?" confirmation for updates downloaded in the app
+            "com.android.packageinstaller",
+            "com.google.android.packageinstaller",
             // Phone calls
             "com.android.phone",
             "com.android.server.telecom",

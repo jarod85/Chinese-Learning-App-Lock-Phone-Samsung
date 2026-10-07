@@ -1,6 +1,7 @@
 package com.hanzilock.ui.quiz
 
 import android.Manifest
+import androidx.activity.compose.BackHandler
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,6 +49,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,6 +67,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.hanzilock.HanziLockApp
 import com.hanzilock.R
 import com.hanzilock.core.CompletionRule
 import com.hanzilock.core.LanguageProfile
@@ -71,6 +76,7 @@ import com.hanzilock.data.Word
 import com.hanzilock.quiz.SentenceTiles
 import com.hanzilock.ui.common.SpeakButton
 import com.hanzilock.ui.common.formatTime
+import com.hanzilock.ui.learn.LearnContent
 import com.hanzilock.ui.theme.LossColor
 import com.hanzilock.ui.theme.WinColor
 import com.hanzilock.ui.theme.termStyle
@@ -83,8 +89,20 @@ import com.hanzilock.ui.quiz.QuizViewModel.Step
 @Composable
 fun QuizContent(vm: QuizViewModel, onDone: () -> Unit, modifier: Modifier = Modifier) {
     val ui by vm.ui.collectAsStateWithLifecycle()
+    // Learning mode for the word just answered, shown over the quiz until you go back to it.
+    var learning by rememberSaveable { mutableStateOf<Long?>(null) }
+    val learnId = learning.takeIf { ui.phase == Phase.QUIZ }
+    BackHandler(enabled = learnId != null) { learning = null }
     Box(modifier.fillMaxSize()) {
-        when (ui.phase) {
+        if (learnId != null) {
+            Column(Modifier.fillMaxSize()) {
+                Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Learning mode · not graded", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { learning = null }) { Text("Back to the quiz") }
+                }
+                LearnContent(learnId, onClose = { learning = null }, modifier = Modifier.weight(1f))
+            }
+        } else when (ui.phase) {
             Phase.LOADING -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             Phase.NO_WORDS -> Message(
                 title = "No words to practise",
@@ -94,13 +112,13 @@ fun QuizContent(vm: QuizViewModel, onDone: () -> Unit, modifier: Modifier = Modi
             )
             Phase.SUMMARY -> Summary(ui.summary, onDone)
             Phase.CLOSED -> Unit
-            Phase.QUIZ -> WordQuiz(ui, vm)
+            Phase.QUIZ -> WordQuiz(ui, vm, onLearn = { learning = it })
         }
     }
 }
 
 @Composable
-private fun WordQuiz(ui: QuizViewModel.Ui, vm: QuizViewModel) {
+private fun WordQuiz(ui: QuizViewModel.Ui, vm: QuizViewModel, onLearn: (Long) -> Unit) {
     val word = ui.word ?: return
     Column(
         Modifier
@@ -116,7 +134,7 @@ private fun WordQuiz(ui: QuizViewModel.Ui, vm: QuizViewModel) {
             Step.PRONUNCIATION -> PronunciationStep(ui, vm)
             Step.MEANING -> MeaningStep(ui, vm)
             Step.SENTENCE -> SentenceStep(ui, vm, word)
-            Step.RESULT -> ResultStep(ui, vm, word)
+            Step.RESULT -> ResultStep(ui, vm, word, onLearn = { onLearn(word.id) })
         }
         ui.note?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -385,7 +403,8 @@ private fun Tile(text: String, locale: String?, filled: Boolean, onClick: () -> 
 }
 
 @Composable
-private fun ResultStep(ui: QuizViewModel.Ui, vm: QuizViewModel, word: Word) {
+private fun ResultStep(ui: QuizViewModel.Ui, vm: QuizViewModel, word: Word, onLearn: () -> Unit) {
+    val claudeKey = HanziLockApp.get(LocalContext.current).settings.claudeApiKey.isNotBlank()
     val r = ui.result ?: return
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -419,6 +438,9 @@ private fun ResultStep(ui: QuizViewModel.Ui, vm: QuizViewModel, word: Word) {
             OutlinedButton(onClick = vm::overrideMeaning, modifier = Modifier.fillMaxWidth()) {
                 Text("I was right - accept “${ui.meaningInput.trim()}”")
             }
+        }
+        if (claudeKey) {
+            OutlinedButton(onClick = onLearn, modifier = Modifier.fillMaxWidth()) { Text("Learn this word with Claude") }
         }
         BusyButton("Next", busy = ui.busy, enabled = true, onClick = vm::next)
     }

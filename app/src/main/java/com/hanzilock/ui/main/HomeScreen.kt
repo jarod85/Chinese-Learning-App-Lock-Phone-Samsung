@@ -98,6 +98,8 @@ fun HomeScreen(nav: Navigator) {
                 }
             }
 
+            UpdatePanel(always = false)
+
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Learning", style = MaterialTheme.typography.labelLarge)

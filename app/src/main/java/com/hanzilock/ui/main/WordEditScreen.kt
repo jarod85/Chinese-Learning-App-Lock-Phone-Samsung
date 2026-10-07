@@ -34,12 +34,14 @@ import com.hanzilock.quiz.Pinyin
 import com.hanzilock.ui.common.SectionTitle
 import com.hanzilock.ui.theme.termStyle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Add or edit a word. Chinese pinyin and meanings can be filled in from CC-CEDICT; any language
- * can get its reading, meanings and an example from Claude. New words go into [setId] (or your
+ * Add or edit a word. For a new Chinese word, pinyin and meanings fill in from CC-CEDICT as you
+ * type; after saving, Claude adds whatever is still missing (an example sentence with its reading,
+ * and for other languages the reading and meanings too). New words go into [setId] (or your
  * "My words" set).
  */
 @Composable
@@ -61,6 +63,10 @@ fun WordEditScreen(nav: Navigator, id: Long?, prefill: DictEntry?, snackbar: Sna
     var busy by rememberSaveable { mutableStateOf(false) }
     var moreExamples by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var forms by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    // What the dictionary last filled in, so it can be replaced as you keep typing (anything you typed is kept).
+    var autoReading by rememberSaveable { mutableStateOf("") }
+    var autoMeanings by rememberSaveable { mutableStateOf("") }
+    var autoTraditional by rememberSaveable { mutableStateOf("") }
 
     LaunchedEffect(id) {
         if (id == null || loaded) return@LaunchedEffect
@@ -77,6 +83,20 @@ fun WordEditScreen(nav: Navigator, id: Long?, prefill: DictEntry?, snackbar: Sna
         loaded = true
     }
     val profile = remember(lang) { app.languages.get(lang) }
+
+    // New Chinese words: pinyin and meanings come from CC-CEDICT as you type.
+    LaunchedEffect(term, lang) {
+        val key = term.trim()
+        if (id != null || lang != "zh" || key.isEmpty()) return@LaunchedEffect
+        delay(400)
+        val entry = withContext(Dispatchers.IO) { app.dictionary.lookup(key).firstOrNull() }
+        val newReading = entry?.pinyinMarked.orEmpty()
+        val newMeanings = entry?.let { app.importExport.cleanDefinitions(it.definitions) }.orEmpty().joinToString("\n")
+        val newTraditional = entry?.traditional?.takeIf { it != entry.simplified }.orEmpty()
+        if (reading.isBlank() || reading == autoReading) { reading = newReading; autoReading = newReading }
+        if (meanings.isBlank() || meanings == autoMeanings) { meanings = newMeanings; autoMeanings = newMeanings }
+        if (traditional.isBlank() || traditional == autoTraditional) { traditional = newTraditional; autoTraditional = newTraditional }
+    }
 
     fun fillFromDictionary() {
         val key = term.trim()
@@ -128,12 +148,17 @@ fun WordEditScreen(nav: Navigator, id: Long?, prefill: DictEntry?, snackbar: Sna
 
     fun save() {
         val t = term.trim()
+        if (t.isEmpty()) {
+            scope.launch { snackbar.showSnackbar("Enter the word.") }
+            return
+        }
+        // A new word only needs the word itself when Claude can fill in the rest after saving.
+        val claude = id == null && app.graderOrNull() != null
         val meaningList = meanings.lines().map { it.trim() }.filter { it.isNotEmpty() }
         val normalizedReading = if (lang == "zh") Pinyin.normalizeToMarked(reading).ifEmpty { reading.trim() } else reading.trim()
         val error = when {
-            t.isEmpty() -> "Enter the word."
-            lang == "zh" && normalizedReading.isBlank() -> "Enter the pinyin (or fill it from the dictionary)."
-            meaningList.isEmpty() -> "Enter at least one meaning."
+            lang == "zh" && normalizedReading.isBlank() && !claude -> "Enter the pinyin (or add a Claude API key in Settings to fill it in)."
+            meaningList.isEmpty() && !claude -> "Enter at least one meaning."
             else -> null
         }
         if (error != null) {
@@ -160,13 +185,22 @@ fun WordEditScreen(nav: Navigator, id: Long?, prefill: DictEntry?, snackbar: Sna
                 if (id == null) {
                     val target = setId ?: app.words.myWordsSet(lang)
                     val existing = app.words.find(lang, t)
-                    if (existing != null) {
+                    val wordId = if (existing != null) {
                         // Already known from another set (e.g. HSK 4): share it, keeping its progress.
                         app.words.addToSet(target, existing.id)
-                        "Added $t - it was already in another set, so its progress is kept." to true
+                        existing.id
                     } else {
-                        app.words.insert(draft, "user", target)
-                        null to true
+                        // Without Claude, a new Chinese word still gets an example from the sentence corpus.
+                        val corpusExample = if (examples.isEmpty() && lang == "zh" && !claude) app.corpus.find(t, 1) else emptyList()
+                        app.words.insert(draft.copy(examples = corpusExample.ifEmpty { examples }), "user", target)
+                    }
+                    // Claude adds whatever is still missing: pinyin / reading, meanings, an example with its reading.
+                    val filling = claude && app.words.get(wordId)?.let(app.filler::needsHelp) == true
+                    if (filling) app.fillInBackground(lang, listOf(wordId))
+                    when {
+                        existing != null -> "Added $t - it was already in another set, so its progress is kept." to true
+                        filling -> "Added $t - Claude is adding an example sentence and anything else missing." to true
+                        else -> null to true
                     }
                 } else {
                     val clash = app.words.find(lang, t)

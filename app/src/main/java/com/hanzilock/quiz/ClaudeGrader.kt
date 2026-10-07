@@ -39,7 +39,31 @@ class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
         val reading: String = "",
         val meanings: List<String> = emptyList(),
         val example: String = "",
+        @SerialName("example_reading") val exampleReading: String = "",
         @SerialName("example_translation") val exampleTranslation: String = "",
+    )
+
+    /** A short lesson about one word, written only in the language being learned (learning mode). */
+    @Serializable
+    data class Lesson(
+        val explanation: String,
+        @SerialName("explanation_reading") val explanationReading: String = "",
+        val usage: String = "",
+        @SerialName("usage_reading") val usageReading: String = "",
+        val examples: List<LessonExample> = emptyList(),
+    )
+
+    @Serializable
+    data class LessonExample(val text: String, val reading: String = "")
+
+    /** Learning-mode feedback on one of the learner's sentences, in the language being learned. */
+    @Serializable
+    data class SentenceReview(
+        val correct: Boolean,
+        val feedback: String,
+        @SerialName("feedback_reading") val feedbackReading: String = "",
+        @SerialName("corrected_sentence") val correctedSentence: String = "",
+        @SerialName("corrected_reading") val correctedReading: String = "",
     )
 
     @Serializable
@@ -110,8 +134,8 @@ class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
     ).let { AppJson.decodeFromString<GeneratedExample>(it) }
 
     /**
-     * Details for imported words the dictionary didn't know: reading (pinyin with tone marks for
-     * Chinese, hiragana for Japanese, empty otherwise), English meanings and one example sentence.
+     * Details for new words: reading (pinyin with tone marks for Chinese, hiragana for Japanese,
+     * empty otherwise), English meanings and one example sentence with its reading.
      */
     fun describeWords(language: String, terms: List<String>): List<WordDescription> {
         val item = mapOf(
@@ -121,14 +145,16 @@ class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
                 "reading" to mapOf("type" to "string", "description" to "pinyin with tone marks (Chinese), hiragana (Japanese), or empty"),
                 "meanings" to mapOf("type" to "array", "items" to mapOf("type" to "string"), "description" to "1-4 short English meanings"),
                 "example" to mapOf("type" to "string", "description" to "a short natural example sentence using the word"),
+                "example_reading" to mapOf("type" to "string", "description" to "reading of the whole example (pinyin / hiragana), or empty"),
                 "example_translation" to mapOf("type" to "string", "description" to "English translation of the example"),
             ),
-            "required" to listOf("term", "reading", "meanings", "example", "example_translation"),
+            "required" to listOf("term", "reading", "meanings", "example", "example_reading", "example_translation"),
             "additionalProperties" to false,
         )
         val text = ask(
             system = """
-                You help someone learning $language build flashcards. For each word, give its reading (pinyin with tone marks and one space between syllables for Chinese, hiragana for Japanese, an empty string for other languages), up to four short English meanings like a learner's dictionary would, and one short natural example sentence using the word with its English translation.
+                You help someone learning $language build flashcards. For each word, give its reading (pinyin with tone marks and one space between syllables for Chinese, hiragana for Japanese, an empty string for other languages), up to four short English meanings like a learner's dictionary would, and one short natural example sentence using the word, with mostly common vocabulary, its reading and its English translation.
+                For Chinese examples, put a space between words (for example "我 每天 学习 汉语。") and give the pinyin of the whole sentence with tone marks; for Japanese give the reading of the sentence in hiragana; for other languages leave the example reading empty.
                 Return the words in the order given, with each term exactly as given.
             """.trimIndent(),
             user = "Words ($language):\n" + terms.joinToString("\n"),
@@ -137,6 +163,59 @@ class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
         )
         return AppJson.decodeFromString<WordDescriptions>(text).words
     }
+
+    /**
+     * Learning mode: what the word means and how it's used, explained only in the language being
+     * learned (the English meanings are passed along so Claude teaches the right sense).
+     */
+    fun teachWord(word: WordInfo): Lesson {
+        val example = mapOf(
+            "type" to "object",
+            "properties" to mapOf(
+                "text" to mapOf("type" to "string", "description" to "a short natural sentence using the word"),
+                "reading" to mapOf("type" to "string", "description" to "reading of the sentence (pinyin / hiragana), or empty"),
+            ),
+            "required" to listOf("text", "reading"),
+            "additionalProperties" to false,
+        )
+        val text = ask(
+            system = """
+                You are a patient ${word.language} teacher. Teach the learner the word below entirely in ${word.language}: never use English or any other language, not even for a single word. Use simple, common words (easier than the word itself where you can) and short sentences.
+                explanation: what the word means, in 2-4 short sentences.
+                usage: how it is typically used - its grammar pattern, words it often goes with, when people say it - in 1-3 short sentences.
+                examples: 3 short, natural example sentences that use the word, from very simple to a little richer.
+                ${READING_RULES}
+            """.trimIndent(),
+            user = "Word: ${word.shown}\nEnglish meanings (only so you teach the right sense - don't use English in your answer): ${word.meanings.joinToString("; ")}",
+            properties = linkedMapOf(
+                "explanation" to ("string" to "the meaning, explained in ${word.language} only"),
+                "explanation_reading" to ("string" to "reading of the explanation (pinyin / hiragana), or empty"),
+                "usage" to ("string" to "how the word is used, in ${word.language} only"),
+                "usage_reading" to ("string" to "reading of the usage note (pinyin / hiragana), or empty"),
+            ),
+            rawProperties = mapOf("examples" to mapOf("type" to "array", "items" to example)),
+        )
+        return AppJson.decodeFromString<Lesson>(text)
+    }
+
+    /** Learning mode: checks one of the learner's own sentences and corrects it, in the language being learned. */
+    fun reviewSentence(word: WordInfo, sentence: String): SentenceReview = ask(
+        system = """
+            You are a patient ${word.language} teacher. The learner is practising the word below and wrote their own sentence with it. Decide whether the sentence is correct: it must contain the word (an inflected form is fine), be grammatical and natural, and use the word in a sense that fits. Ignore punctuation.
+            Answer entirely in ${word.language}, never in English, with simple words.
+            feedback: if the sentence is correct, a few words of praise and optionally one tip; if not, say briefly what is wrong and why (1-2 short sentences).
+            corrected_sentence: the corrected sentence, keeping the learner's idea; if it was already correct, a more natural version or the same sentence.
+            ${READING_RULES}
+        """.trimIndent(),
+        user = "Word: ${word.shown}\nEnglish meanings (for reference only): ${word.meanings.joinToString("; ")}\nLearner's sentence: $sentence",
+        properties = linkedMapOf(
+            "correct" to ("boolean" to "true if the sentence uses the word correctly"),
+            "feedback" to ("string" to "short feedback in ${word.language} only"),
+            "feedback_reading" to ("string" to "reading of the feedback (pinyin / hiragana), or empty"),
+            "corrected_sentence" to ("string" to "corrected or more natural sentence"),
+            "corrected_reading" to ("string" to "reading of the corrected sentence (pinyin / hiragana), or empty"),
+        ),
+    ).let { AppJson.decodeFromString<SentenceReview>(it) }
 
     /** Cheap end-to-end check for the Settings screen. */
     fun testConnection(): String {
@@ -206,6 +285,11 @@ class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
     override fun close() = client.close()
 
     companion object {
+        /** How the *_reading fields of the learning-mode answers are filled. */
+        private const val READING_RULES =
+            "Reading fields: for Chinese, the pinyin of that text with tone marks; for Japanese, its reading in hiragana; for other languages an empty string. " +
+                "In Chinese example sentences put a space between words (for example \"我 每天 学习 汉语。\")."
+
         /** Effort isn't accepted by Haiku 4.5 / Sonnet 4.5 and older models. */
         fun supportsEffort(model: String): Boolean =
             !model.contains("haiku") && !model.contains("-4-5") && !model.contains("-3-") && !model.contains("-4-0") &&

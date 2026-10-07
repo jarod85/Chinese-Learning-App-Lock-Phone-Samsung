@@ -57,6 +57,7 @@ sealed interface Route {
     data object Settings : Route
     data class WordDetail(val id: Long) : Route
     data class WordEdit(val id: Long?, val prefill: DictEntry? = null, val setId: Long? = null) : Route
+    data class Learn(val id: Long) : Route
     data object Practice : Route
     data object AllowedApps : Route
     data object PriorityEmail : Route
@@ -139,6 +140,7 @@ fun AppRoot(incoming: Uri? = null, onIncomingHandled: () -> Unit = {}) {
                 Route.Settings -> SettingsScreen(nav, snackbar)
                 is Route.WordDetail -> WordDetailScreen(nav, current.id)
                 is Route.WordEdit -> WordEditScreen(nav, current.id, current.prefill, snackbar, current.setId)
+                is Route.Learn -> LearnScreen(nav, current.id)
                 Route.Practice -> PracticeScreen(nav)
                 Route.AllowedApps -> AllowedAppsScreen(nav)
                 Route.PriorityEmail -> PriorityEmailScreen(nav)

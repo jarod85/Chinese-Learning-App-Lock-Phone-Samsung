@@ -125,6 +125,11 @@ class Settings(context: Context) {
         get() = enumOr(prefs.getString("grading_mode", null), GradingMode.AUTO)
         set(v) = edit { putString("grading_mode", v.name) }
 
+    /** Words in your own sets up to this id have had their missing details filled in by Claude. */
+    var filledUpToWordId: Long
+        get() = prefs.getLong("filled_up_to_word_id", 0L)
+        set(v) = edit { putLong("filled_up_to_word_id", v) }
+
     // ---- PIN ------------------------------------------------------------------------------------
 
     var pinHash: String?
