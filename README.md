@@ -131,30 +131,21 @@ screen (or *Settings > App updates > Check for updates*). Tap **Install** and co
   new content. Your progress on them is never touched.
 - *Settings > About* shows the build number, so you can check the update landed. It goes up with every commit.
 
-**Publishing builds.** Choose one of the two, once:
+**Publishing builds.** Cloud builds are set up: GitHub builds the app on every push to `main`
+([`.github/workflows/release.yml`](.github/workflows/release.yml)) and publishes it as a release, about
+5-10 minutes after the push. So a change reaches the phone like this: commit, push, then on the phone
+*Settings > App updates > Check for updates* and **Install**. No PC is needed, e.g. when you ask Claude Code on
+the web for a change.
 
-- **Cloud builds (recommended):** GitHub builds the app on every push to `main`
-  ([`.github/workflows/release.yml`](.github/workflows/release.yml)), so you don't need the PC at all, e.g.
-  when you ask Claude Code on the web for a change. One-time setup on the PC, with the
-  [GitHub CLI](https://cli.github.com) (`winget install --id GitHub.cli`, then `gh auth login`):
+- The cloud builds are signed with your key from `keystore\`, stored as encrypted secrets of the repository by
+  `.\tools\setup-cloud-builds.ps1` (run once, with the [GitHub CLI](https://cli.github.com):
+  `winget install --id GitHub.cli`, then `gh auth login`). Run it again if you ever replace the key. Without
+  the secrets the workflow skips the build.
+- Alternative that keeps the signing key on your PC only: delete the secrets
+  (*GitHub > Settings > Secrets and variables > Actions*), then after each commit and push run
+  `.\tools\publish.ps1`.
 
-  ```powershell
-  .\tools\setup-cloud-builds.ps1
-  ```
-
-  It stores your signing key (`keystore\`) as encrypted secrets of the repository, so the cloud builds are
-  signed like your PC's. A build takes about 5-10 minutes after a push. Until the secrets exist, the workflow
-  skips the build.
-- **Build on the PC:** keeps the signing key on your PC only. Commit and push, then:
-
-  ```powershell
-  .\tools\publish.ps1
-  ```
-
-The version that adds in-app updates has to be installed one last time with the cable (below). After that,
-updates come through the app.
-
-**With a cable** (first install, or if GitHub isn't set up): **double-click `update-phone.cmd`** (or run
+**With a cable** (first install, or recovery if an in-app update can't be installed): **double-click `update-phone.cmd`** (or run
 `.\tools\install.ps1`). It rebuilds the app and installs it over the one on the phone. The phone needs USB
 debugging on and Auto Blocker off, as for the first install. `update-phone.cmd -NoBuild` reinstalls the last
 build without rebuilding. Wireless debugging works too: on the phone, *Developer options > Wireless debugging >
@@ -231,7 +222,8 @@ Everything else is filled in automatically:
 You name the set and confirm the language before importing.
 
 **From the PC:** drag the file onto **`add-words.cmd`** in the repo folder. It creates the set in
-`content/sets/custom/` (the language is detected from the writing, or asked), then offers to update the phone.
+`content/sets/custom/` (the language is detected from the writing, or asked), then offers to publish it: it
+commits and pushes the set, and the phone offers the update a few minutes later (*Settings > App updates*).
 Dropping a file with the same name again updates that set. The same from a terminal:
 
 ```powershell
@@ -243,7 +235,7 @@ python tools\sets.py import comida.csv --lang es --name "Food"
 ```
 
 **Here, with Claude Code:** in this repo you can also just ask, e.g. *"make a set called Travel with 机场, 护照,
-行李 and 登机牌"*. That runs the same import; then update the phone.
+行李 and 登机牌"*. That runs the same import; then commit and push, and update the app on the phone.
 
 **File formats** (UTF-8, `.csv`, `.tsv` or `.txt`):
 

@@ -946,7 +946,7 @@ def cmd_add_language(args):
     index = load_index()
     build_european(index, code)
     save_index(index)
-    log("Added %s. Rebuild and install the app (tools/install.ps1)." % LANGS[code]["name"])
+    log("Added %s. Commit and push; the phone then offers the update (Settings > App updates)." % LANGS[code]["name"])
 
 
 # ---------------------------------------------------------------------------------------------

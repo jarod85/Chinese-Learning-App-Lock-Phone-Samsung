@@ -24,10 +24,30 @@ if errorlevel 1 (
   exit /b 1
 )
 echo.
-choice /c YN /m "Update the phone now"
+rem Publishing = commit + push: GitHub builds the update and the app on the phone offers it.
+choice /c YN /m "Publish it to the phone now"
 if errorlevel 2 (
-  echo OK - the new set goes onto the phone the next time you run update-phone.cmd.
+  echo OK - the set goes out with your next push to GitHub.
   pause
   exit /b 0
 )
-call "%~dp0update-phone.cmd"
+git add content/sets
+git diff --cached --quiet
+if not errorlevel 1 (
+  echo Nothing changed - the phone already has this set.
+  pause
+  exit /b 0
+)
+git commit -q -m "Word set: %~n1" || goto pushfailed
+git push -q || goto pushfailed
+echo.
+echo Pushed. GitHub builds the update in about 5-10 minutes; then on the phone open
+echo Settings ^> App updates ^> Check for updates and tap Install.
+pause
+exit /b 0
+
+:pushfailed
+echo.
+echo Publishing failed - see the message above. The set is saved in content\sets\custom.
+pause
+exit /b 1
