@@ -135,6 +135,11 @@ private fun WordQuiz(ui: QuizViewModel.Ui, vm: QuizViewModel, onLearn: (Long) ->
         ui.note?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        if (ui.step != Step.RESULT) {
+            TextButton(onClick = vm::skipWord, enabled = !ui.busy, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                Text("Don't know it? Skip this word")
+            }
+        }
         Spacer(Modifier.height(24.dp))
     }
 }
@@ -388,7 +393,9 @@ private fun ResultStep(ui: QuizViewModel.Ui, vm: QuizViewModel, word: Word, onLe
     val claudeKey = HanziLockApp.get(LocalContext.current).settings.claudeApiKey.isNotBlank()
     val r = ui.result ?: return
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        if (r.skipped) {
+            Text("Skipped - not scored. Here's the answer; another word takes its place.", style = MaterialTheme.typography.titleMedium)
+        } else Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.size(36.dp).clip(CircleShape).background(if (r.win) WinColor else LossColor),
                 contentAlignment = Alignment.Center,

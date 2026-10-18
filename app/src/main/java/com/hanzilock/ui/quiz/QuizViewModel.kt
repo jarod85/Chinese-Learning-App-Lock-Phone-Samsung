@@ -47,6 +47,8 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
         val corrected: String?,
         val translation: String?,
         val canOverrideMeaning: Boolean,
+        /** "Skip this word": the answer is shown, nothing is scored and another word takes its place. */
+        val skipped: Boolean = false,
     )
 
     data class SummaryUi(val wins: Int, val losses: Int, val unlocked: Boolean, val nextResetAt: Long?)
@@ -510,6 +512,23 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
         speakWord(word)
     }
 
+    /** "I don't know this one": shows the answer; Next deals another word without scoring this one. */
+    fun skipWord() {
+        val u = _ui.value
+        val word = u.word ?: return
+        if (u.busy || u.step == Step.RESULT) return
+        speech.stop()
+        _ui.update {
+            it.copy(
+                step = Step.RESULT,
+                listening = false,
+                note = null,
+                result = ResultUi(false, null, null, null, null, null, canOverrideMeaning = false, skipped = true),
+            )
+        }
+        speakWord(word)
+    }
+
     /** Records the word's result and deals the next word (or ends the session). */
     fun next() {
         val u = _ui.value
@@ -520,9 +539,13 @@ class QuizViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val feedback = listOfNotNull(result.message, result.feedback).joinToString(" ").ifBlank { null }
             val session = withContext(Dispatchers.IO) {
-                app.sessions.record(
-                    WordOutcome(word.id, result.win, result.failedPart, heard, meaningAnswer, sentenceAnswer, feedback, gradedBy),
-                )
+                if (result.skipped) {
+                    app.sessions.skipWord()
+                } else {
+                    app.sessions.record(
+                        WordOutcome(word.id, result.win, result.failedPart, heard, meaningAnswer, sentenceAnswer, feedback, gradedBy),
+                    )
+                }
             }
             if (session == null) {
                 _ui.update { it.copy(phase = Phase.CLOSED) }

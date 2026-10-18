@@ -12,7 +12,8 @@ For each word you have to:
    API key), you rebuild the word's example sentence from shuffled word tiles instead.
 
 If you miss any of the three, the attempt is **logged as a loss** (with what you said or typed), you get the
-correct answer with audio, and the quiz **moves on to a different word**.
+correct answer with audio, and the quiz **moves on to a different word**. Don't know a word at all? **Skip this
+word** shows the answer without scoring it and deals another word in its place, so it never brings the unlock closer.
 
 It comes with word sets from beginner to advanced for **Mandarin, Japanese, Korean, Spanish, French and
 Italian**, and you can add other languages from the phone. Words are organised Pleco-style in **sets** that you

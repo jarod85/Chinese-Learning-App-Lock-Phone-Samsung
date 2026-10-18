@@ -122,15 +122,30 @@ class SessionManager(
         )
         if (!next.isComplete && next.index >= next.queue.size) {
             // "Get N right" mode ran out of words: deal a different word, or recycle an earlier one.
-            val fresh = words.pickForSession(s.lang, now, 1, next.queue.toSet()).map { it.id }
-            val extra = fresh.ifEmpty {
-                next.queue.distinct().filter { it != outcome.wordId }.shuffled().take(1).ifEmpty { listOf(outcome.wordId) }
-            }
-            next = next.copy(queue = next.queue + extra)
+            next = next.copy(queue = next.queue + anotherWord(s, outcome.wordId, now))
         }
         save(next)
         return next
     }
+
+    /**
+     * "I don't know this one": moves past the current word without scoring it and deals another
+     * in its place, so skipping never brings the unlock closer.
+     */
+    @Synchronized
+    fun skipWord(now: Long = System.currentTimeMillis()): ActiveSession? {
+        val s = _active.value ?: return null
+        val current = s.currentWordId ?: return s
+        val next = s.copy(index = s.index + 1, queue = s.queue + anotherWord(s, current, now))
+        save(next)
+        return next
+    }
+
+    /** A word not dealt yet in this session, or else an earlier one (only [current] if it's the only word). */
+    private fun anotherWord(s: ActiveSession, current: Long, now: Long): Long =
+        words.pickForSession(s.lang, now, 1, s.queue.toSet()).firstOrNull()?.id
+            ?: s.queue.distinct().filter { it != current }.randomOrNull()
+            ?: current
 
     /** Moves past a word that no longer exists (deleted mid-session) without scoring it. */
     @Synchronized
