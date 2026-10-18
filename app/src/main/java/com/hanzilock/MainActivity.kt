@@ -16,18 +16,28 @@ import com.hanzilock.ui.theme.HanziTheme
 
 /**
  * Word sets, dictionary, stats and settings. Hidden behind the practice screen while locked.
- * Also receives word lists shared to / opened with Lingo Lock and offers to import them.
+ * Also receives word lists shared to / opened with Lingo Lock and offers to import them, and web
+ * pages or Chinese text shared to it, which open as stories.
  */
 class MainActivity : ComponentActivity() {
     private var incoming by mutableStateOf<Uri?>(null)
+    private var incomingText by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        if (savedInstanceState == null) incoming = fileFrom(intent)
+        if (savedInstanceState == null) {
+            incoming = fileFrom(intent)
+            incomingText = textFrom(intent)
+        }
         setContent {
             HanziTheme {
-                AppRoot(incoming = incoming, onIncomingHandled = { incoming = null })
+                AppRoot(
+                    incoming = incoming,
+                    onIncomingHandled = { incoming = null },
+                    incomingText = incomingText,
+                    onIncomingTextHandled = { incomingText = null },
+                )
             }
         }
     }
@@ -35,6 +45,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         fileFrom(intent)?.let { incoming = it }
+        textFrom(intent)?.let { incomingText = it }
     }
 
     override fun onResume() {
@@ -43,6 +54,10 @@ class MainActivity : ComponentActivity() {
         if (app.lockEngine.isLockDue()) LockActivity.launch(this)
         app.updater.checkIfDue()
     }
+
+    /** A link or text shared without a file (e.g. a web page from Chrome): offered as a story. */
+    private fun textFrom(intent: Intent?): String? =
+        if (intent?.action == Intent.ACTION_SEND && fileFrom(intent) == null) intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() } else null
 
     private fun fileFrom(intent: Intent?): Uri? = when (intent?.action) {
         Intent.ACTION_VIEW -> intent.data

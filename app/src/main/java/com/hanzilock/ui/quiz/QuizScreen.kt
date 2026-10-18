@@ -1,10 +1,6 @@
 package com.hanzilock.ui.quiz
 
-import android.Manifest
 import androidx.activity.compose.BackHandler
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -65,7 +61,6 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hanzilock.HanziLockApp
 import com.hanzilock.R
@@ -74,6 +69,7 @@ import com.hanzilock.core.LanguageProfile
 import com.hanzilock.data.QuizPart
 import com.hanzilock.data.Word
 import com.hanzilock.quiz.SentenceTiles
+import com.hanzilock.ui.common.rememberMicAction
 import com.hanzilock.ui.common.SpeakButton
 import com.hanzilock.ui.common.formatTime
 import com.hanzilock.ui.learn.LearnContent
@@ -211,21 +207,6 @@ private fun QuizPart.toStep() = when (this) {
     QuizPart.PRONUNCIATION -> Step.PRONUNCIATION
     QuizPart.MEANING -> Step.MEANING
     QuizPart.SENTENCE -> Step.SENTENCE
-}
-
-@Composable
-private fun rememberMicAction(onGranted: () -> Unit): () -> Unit {
-    val context = LocalContext.current
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) onGranted()
-    }
-    return {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            onGranted()
-        } else {
-            launcher.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
 }
 
 @Composable

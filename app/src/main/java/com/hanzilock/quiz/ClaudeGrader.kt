@@ -3,6 +3,7 @@ package com.hanzilock.quiz
 import com.anthropic.client.AnthropicClient
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.core.JsonValue
+import com.anthropic.core.RequestOptions
 import com.anthropic.errors.AnthropicException
 import com.anthropic.errors.AnthropicIoException
 import com.anthropic.errors.AnthropicServiceException
@@ -226,13 +227,15 @@ class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
     /**
      * One request with a JSON-schema constrained answer. Grading is a quick judgement, so effort
      * is kept low for speed; a refused request is retried server-side on the recommended fallback
-     * model (the "fallbacks" option) before we give up.
+     * model (the "fallbacks" option) before we give up. [timeout] overrides the client's 45 s for
+     * long answers (a whole story).
      */
-    private fun ask(
+    internal fun ask(
         system: String,
         user: String,
         properties: Map<String, Pair<String, String>>,
         rawProperties: Map<String, Any> = emptyMap(),
+        timeout: Duration? = null,
     ): String {
         val props: Map<String, Any> = properties.mapValues { (_, v) -> mapOf("type" to v.first, "description" to v.second) } + rawProperties
         val schema = JsonOutputFormat.Schema.builder()
@@ -254,7 +257,8 @@ class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
             params.putAdditionalBodyProperty("fallbacks", JsonValue.from("default"))
         }
         val response = try {
-            client.messages().create(params.build())
+            if (timeout == null) client.messages().create(params.build())
+            else client.messages().create(params.build(), RequestOptions.builder().timeout(timeout).build())
         } catch (e: UnauthorizedException) {
             throw GraderException("Claude rejected the API key. Check it in Settings.", e)
         } catch (e: PermissionDeniedException) {

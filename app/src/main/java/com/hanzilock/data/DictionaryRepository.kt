@@ -147,6 +147,32 @@ class DictionaryRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Which of [candidates] are dictionary words, each mapped to its simplified form (itself for
+     * simplified words, so traditional text can be converted while it is cut into words).
+     */
+    fun wordForms(candidates: Collection<String>): Map<String, String> {
+        if (!isReady || candidates.isEmpty()) return emptyMap()
+        val simplified = HashSet<String>()
+        val fromTraditional = HashMap<String, String>()
+        for (batch in candidates.distinct().chunked(400)) {
+            val marks = batch.joinToString(",") { "?" }
+            helper.readableDatabase.rawQuery(
+                "SELECT simp, trad FROM dict WHERE simp IN ($marks) OR trad IN ($marks)",
+                (batch + batch).toTypedArray(),
+            ).mapRows { it.getString(0) to it.getString(1) }.forEach { (simp, trad) ->
+                simplified += simp
+                fromTraditional.putIfAbsent(trad, simp)
+            }
+        }
+        return candidates.mapNotNull { c ->
+            when {
+                c in simplified -> c to c
+                else -> fromTraditional[c]?.let { c to it }
+            }
+        }.toMap()
+    }
+
     /** Numbered, lower-case readings of one character: "行" -> {xing2, hang2, ...}. */
     fun readings(ch: String): Set<String> {
         if (!isReady) return emptySet()

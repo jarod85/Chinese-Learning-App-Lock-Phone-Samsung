@@ -23,6 +23,10 @@ Every word also has a **learning mode** guided by Claude: it explains the word o
 learning (no English), shows how it's used with example sentences, then corrects three sentences you write
 yourself, without grading them.
 
+A **Stories** tab gives you Chinese stories to read: written by Claude at your HSK level, graded stories from
+Mandarin Bean, or any web page or text. Press and hold a word for its pinyin and meaning, tap the top of the page for
+the English translation, have the story read aloud, and answer comprehension questions in Chinese at the end.
+
 Phone calls, alarms, your calendar, SMS, emergency SOS, notifications and any apps you allow **keep working while
 locked**. Emails from senders or accounts you choose can be opened too.
 
@@ -40,6 +44,7 @@ locked**. Emails from senders or accounts you choose can be opened too.
 - [How the built-in sets are made](#how-the-built-in-sets-are-made)
 - [AI grading with Claude (optional)](#ai-grading-with-claude-optional)
 - [Learning mode](#learning-mode)
+- [Stories](#stories)
 - [Emergency exits](#emergency-exits)
 - [Limitations](#limitations)
 - [Project layout and development](#project-layout-and-development)
@@ -59,6 +64,7 @@ locked**. Emails from senders or accounts you choose can be opened too.
 | **Priority emails** | Notifications are never hidden. If you open an email notification that matches your rules (e.g. `me@work.com`, a sender's name or a subject word), that email app is allowed for a few minutes. Matching emails are also listed on the practice screen. |
 | **Master PIN** | Ends a session early (logged as *skipped*), pauses the lock for 1 or 3 hours, and protects the settings. |
 | **Dictionary** | For Chinese, CC-CEDICT (about 120k entries), searchable by characters, pinyin (with or without tones) or English, Pleco-style. For other languages, a search across all of that language's sets. |
+| **Stories** | Chinese stories to read page by page, with word lookup, English translation, reading aloud and comprehension questions (see [Stories](#stories)). |
 | **Stats** | Per language: accuracy, streak, a 14-day chart, your weakest words and a full **loss log**. |
 
 ## Languages and word sets
@@ -314,6 +320,39 @@ For Chinese and Japanese, *Show pinyin* / *Show reading* puts the pinyin (or kan
 lesson and each checked sentence is one API call billed to your key. Learning mode needs the API key and a
 connection, and isn't available when AI grading is set to *Always offline*.
 
+## Stories
+
+The **Stories** tab is for reading practice in Chinese (simplified characters). Get a story in one of three ways:
+
+- **Write one for my level (Claude):** pick HSK 1-6, a length and, if you like, a topic. Claude writes an original
+  story with mostly words of that level, its English translation and three comprehension questions (one API call).
+  Without a topic it picks a different kind of story each time.
+- **Graded stories from Mandarin Bean:** the stories on [mandarinbean.com](https://mandarinbean.com), sorted by HSK
+  level. The one you tap is loaded onto your phone for your own reading.
+- **From a link or text:** paste a link to any web page with a Chinese story (the app keeps the story text and
+  leaves out menus and footers), or paste the Chinese text itself. Even quicker: in Chrome, tap **Share > Lingo
+  Lock** on the page you're reading. Traditional characters are changed to simplified, and very long pages are cut
+  to the first 8,000 characters.
+
+Reading a story:
+
+- The text comes in **pages**: swipe or use the arrows at the bottom. The story opens where you left off.
+- **Press and hold a word** to see its pinyin and meaning from CC-CEDICT (character by character if it isn't in the
+  dictionary), hear it, or add it to your words. Words are found offline with the dictionary, so this works without
+  a connection.
+- **Tap the panel at the top** to show the **English translation** of the page; tap again to hide it. Translations
+  of stories from the web come from Claude the first time you show them, then they're saved.
+- The **speaker button** (top right) **reads the story aloud** from the page you're on, highlighting each sentence
+  and turning the pages; tap it again to pause. **Normal / Slow** sets the speed. It uses the phone's Chinese
+  text-to-speech voice (see the setup checklist).
+- After the last page come the **questions**: answer each one in Chinese, typed or spoken with the mic, then
+  **explain the story in your own words in Chinese**. Claude says whether you understood it, corrects your Chinese
+  (with pinyin and an English translation) and shows a good answer. **Finish story** ticks it off in your list.
+
+Writing stories, translating and checking answers need the Claude API key (*Settings > AI grading*, not set to
+*Always offline*) and a connection; each is one small call billed to your key. Reading, word lookup and reading
+aloud work offline once a story is on the phone.
+
 ## Emergency exits
 
 - **Master PIN**: tap **PIN** on the practice screen to skip the session or pause for 1 or 3 hours.
@@ -354,10 +393,11 @@ app/src/main/java/com/hanzilock/
   quiz/     pinyin, kana, answer/speech matching, sentence tiles, spaced repetition, sessions, Claude grader
   data/     SQLite (words, sets, sessions, attempts), CC-CEDICT, set sync, language packs, import/export,
             filling in new words with Claude
+  stories/  stories: word cutting and pages, fetching from the web, Claude's stories, translations and questions
   speech/   speech recognition + text-to-speech wrappers
   update/   in-app updates from GitHub releases
-  ui/       Jetpack Compose screens (ui/learn: learning mode)
-app/src/test/                 JVM unit tests (pinyin, kana, matchers, tiles, schedule, import, bundled sets)
+  ui/       Jetpack Compose screens (ui/learn: learning mode, ui/stories: the Stories tab and reader)
+app/src/test/                 JVM unit tests (pinyin, kana, matchers, tiles, schedule, import, bundled sets, stories)
 tools/                        setup-toolchain / build / install / update-cedict / publish / setup-cloud-builds
                               (PowerShell), sets.py
 .github/workflows/release.yml cloud build + GitHub release on every push to main
@@ -387,5 +427,7 @@ You can also open the folder in Android Studio. It uses the same Gradle wrapper 
 - Word frequencies and glosses: [orgtre/google-books-ngram-frequency](https://github.com/orgtre/google-books-ngram-frequency), CC BY 3.0.
 - Example sentences: [Tatoeba](https://tatoeba.org) via [manythings.org](https://www.manythings.org/anki/), CC BY 2.0 FR.
 - Because they adapt CC BY-SA material, the files in `content/sets` are shared under CC BY-SA 4.0.
-- Mic and speaker icons: Material Icons (Apache 2.0).
+- Graded stories in the Stories tab: [Mandarin Bean](https://mandarinbean.com), fetched on your phone for personal
+  reading; they aren't part of this repository.
+- Mic, speaker, pause and book icons: Material Icons (Apache 2.0).
 - Optional grading: the [Anthropic Java SDK](https://github.com/anthropics/anthropic-sdk-java).

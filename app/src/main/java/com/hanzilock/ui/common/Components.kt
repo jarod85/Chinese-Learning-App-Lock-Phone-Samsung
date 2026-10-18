@@ -1,6 +1,10 @@
 package com.hanzilock.ui.common
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -38,6 +42,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import com.hanzilock.HanziLockApp
 import com.hanzilock.R
@@ -157,6 +162,22 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
 fun SpeakButton(onClick: () -> Unit, modifier: Modifier = Modifier, size: Dp = 24.dp) {
     IconButton(onClick = onClick, modifier = modifier) {
         Icon(painterResource(R.drawable.ic_volume_up), contentDescription = "Play pronunciation", modifier = Modifier.size(size))
+    }
+}
+
+/** Runs [onGranted] once the microphone permission is granted (asking for it first if needed). */
+@Composable
+fun rememberMicAction(onGranted: () -> Unit): () -> Unit {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) onGranted()
+    }
+    return {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            onGranted()
+        } else {
+            launcher.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
 }
 

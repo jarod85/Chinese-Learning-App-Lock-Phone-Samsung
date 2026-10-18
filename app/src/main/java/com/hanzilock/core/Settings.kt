@@ -165,6 +165,18 @@ class Settings(context: Context) {
         get() = Languages.decode(prefs.getString("added_languages", null))
         set(v) = edit { putString("added_languages", Languages.encode(v)) }
 
+    // ---- stories ----------------------------------------------------------------------------------
+
+    /** HSK level of the last story Claude wrote for you (0 = not chosen yet). */
+    var storyLevel: Int
+        get() = prefs.getInt("story_level", 0)
+        set(v) = edit { putInt("story_level", v) }
+
+    /** Read stories aloud slowly. */
+    var storySlow: Boolean
+        get() = prefs.getBoolean("story_slow", false)
+        set(v) = edit { putBoolean("story_slow", v) }
+
     // ---- misc -----------------------------------------------------------------------------------
 
     /** Only used to migrate installs from before word sets existed. */

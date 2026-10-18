@@ -22,6 +22,8 @@ import com.hanzilock.data.WordRepository
 import com.hanzilock.quiz.ClaudeGrader
 import com.hanzilock.quiz.SessionManager
 import com.hanzilock.speech.Speaker
+import com.hanzilock.stories.StoryImporter
+import com.hanzilock.stories.StoryRepository
 import com.hanzilock.update.AppUpdater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +51,8 @@ class HanziLockApp : Application() {
     lateinit var importExport: ImportExport private set
     lateinit var speaker: Speaker private set
     lateinit var updater: AppUpdater private set
+    lateinit var stories: StoryRepository private set
+    lateinit var storyImporter: StoryImporter private set
 
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -77,6 +81,8 @@ class HanziLockApp : Application() {
         importExport = ImportExport(this, words, dictionary, corpus, languages, filler)
         speaker = Speaker(this)   // started now so audio is ready for the first word
         updater = AppUpdater(this, scope)
+        stories = StoryRepository(this)
+        storyImporter = StoryImporter(stories, dictionary) { graderOrNull() }
 
         scope.launch(Dispatchers.IO) {
             runCatching { setSync.syncAll(onActiveReady = { _ready.value = true }) }

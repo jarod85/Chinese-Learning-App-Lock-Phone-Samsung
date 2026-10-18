@@ -41,12 +41,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.hanzilock.HanziLockApp
+import com.hanzilock.R
 import com.hanzilock.data.DictEntry
 import com.hanzilock.ui.common.PinDialog
+import com.hanzilock.ui.stories.StoriesScreen
+import com.hanzilock.ui.stories.StoryBrowseScreen
+import com.hanzilock.ui.stories.StoryInputDialog
+import com.hanzilock.ui.stories.StoryLauncherDialog
+import com.hanzilock.ui.stories.StoryReaderScreen
+import com.hanzilock.ui.stories.importStory
+import com.hanzilock.ui.stories.rememberStoryLauncher
 import kotlinx.coroutines.launch
 
 sealed interface Route {
@@ -64,6 +73,9 @@ sealed interface Route {
     data object Setup : Route
     data object Sets : Route
     data class SetWords(val setId: Long, val name: String) : Route
+    data object Stories : Route
+    data object StoryBrowse : Route
+    data class StoryReader(val id: Long) : Route
 }
 
 class Navigator(initial: Route) {
@@ -75,24 +87,31 @@ class Navigator(initial: Route) {
     fun replace(route: Route) { stack[stack.lastIndex] = route }
 }
 
-private data class Tab(val route: Route, val label: String, val icon: ImageVector)
+private data class Tab(val route: Route, val label: String, val icon: ImageVector? = null, val iconRes: Int = 0)
 
 private val TABS = listOf(
     Tab(Route.Home, "Home", Icons.Default.Home),
     Tab(Route.Words, "Words", Icons.AutoMirrored.Filled.List),
+    Tab(Route.Stories, "Stories", iconRes = R.drawable.ic_book),
     Tab(Route.Dictionary, "Dictionary", Icons.Default.Search),
     Tab(Route.Stats, "Stats", Icons.Default.Star),
     Tab(Route.Settings, "Settings", Icons.Default.Settings),
 )
 
 @Composable
-fun AppRoot(incoming: Uri? = null, onIncomingHandled: () -> Unit = {}) {
+fun AppRoot(
+    incoming: Uri? = null,
+    onIncomingHandled: () -> Unit = {},
+    incomingText: String? = null,
+    onIncomingTextHandled: () -> Unit = {},
+) {
     val app = HanziLockApp.get(LocalContext.current)
     val nav = remember { Navigator(if (app.pin.isSet) Route.Home else Route.Setup) }
     var settingsUnlocked by remember { mutableStateOf(false) }
     var askPin by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val storyLauncher = rememberStoryLauncher(nav, snackbar)
     BackHandler(enabled = nav.stack.size > 1) { nav.back() }
 
     // Leaving the app locks the settings again.
@@ -123,8 +142,11 @@ fun AppRoot(incoming: Uri? = null, onIncomingHandled: () -> Unit = {}) {
                                 if (tab.route == Route.Settings && !settingsUnlocked && app.pin.isSet) askPin = true
                                 else nav.tab(tab.route)
                             },
-                            icon = { Icon(tab.icon, contentDescription = null) },
-                            label = { Text(tab.label) },
+                            icon = {
+                                if (tab.icon != null) Icon(tab.icon, contentDescription = null)
+                                else Icon(painterResource(tab.iconRes), contentDescription = null)
+                            },
+                            label = { Text(tab.label, maxLines = 1, softWrap = false) },
                         )
                     }
                 }
@@ -147,6 +169,9 @@ fun AppRoot(incoming: Uri? = null, onIncomingHandled: () -> Unit = {}) {
                 Route.Setup -> SetupScreen(nav)
                 Route.Sets -> SetsScreen(nav, snackbar)
                 is Route.SetWords -> WordsScreen(nav, snackbar, setScope = current)
+                Route.Stories -> StoriesScreen(nav, snackbar)
+                Route.StoryBrowse -> StoryBrowseScreen(nav, snackbar)
+                is Route.StoryReader -> StoryReaderScreen(nav, current.id)
             }
         }
     }
@@ -158,6 +183,19 @@ fun AppRoot(incoming: Uri? = null, onIncomingHandled: () -> Unit = {}) {
             scope.launch { snackbar.showSnackbar(msg) }
         })
     }
+
+    // A web page (or Chinese text) shared to Lingo Lock, e.g. from Chrome: read it as a story.
+    if (incomingText != null && app.pin.isSet) {
+        StoryInputDialog(
+            initial = incomingText,
+            onDismiss = onIncomingTextHandled,
+            onRead = { input ->
+                onIncomingTextHandled()
+                storyLauncher.run("Loading the story…") { importStory(app, input) }
+            },
+        )
+    }
+    StoryLauncherDialog(storyLauncher)
 
     if (askPin) {
         PinDialog(
