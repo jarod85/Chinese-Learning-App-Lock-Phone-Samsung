@@ -83,6 +83,8 @@ locked**. Emails from senders or accounts you choose can be opened too.
   switch to a language its easiest set is switched on.
 - **Choose what you're tested on:** *Home > Choose sets* (or *Words > Sets*). Switch sets on and off. Only
   switched-on sets are used for practice. On a new install only HSK 1 is on.
+- **Combine sets:** *Sets > Combine*. Tick two or more sets and name the new one. It's a set of your own with
+  all their words (progress carries over); the originals stay, and are switched off unless you untick that.
 - **Add another language:** *Home > Change > Add a language…*. German, Russian, Indonesian, Swahili, Urdu and
   Persian download a ready-made A1-B1 list (about 2,000 words with example sentences). Others (Portuguese,
   Dutch, Swedish, Polish, Turkish, Greek, Hebrew, Arabic, Hindi, Vietnamese, Thai, Cantonese) start empty for

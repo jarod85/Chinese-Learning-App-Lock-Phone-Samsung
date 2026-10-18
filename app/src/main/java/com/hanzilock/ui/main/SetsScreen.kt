@@ -15,11 +15,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -65,6 +68,7 @@ fun SetsScreen(nav: Navigator, snackbar: SnackbarHostState, incoming: Uri? = nul
     var renaming by remember { mutableStateOf<WordSet?>(null) }
     var deleting by remember { mutableStateOf<WordSet?>(null) }
     var exporting by remember { mutableStateOf<WordSet?>(null) }
+    var combining by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { if (it != null) importUri = it }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         val set = exporting ?: return@rememberLauncherForActivityResult
@@ -78,7 +82,10 @@ fun SetsScreen(nav: Navigator, snackbar: SnackbarHostState, incoming: Uri? = nul
     ScreenScaffold(
         title = "Sets · ${lang.name}",
         onBack = nav::back,
-        actions = { TextButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Import") } },
+        actions = {
+            if (sets.size >= 2) TextButton(onClick = { combining = true }) { Text("Combine") }
+            TextButton(onClick = { picker.launch(arrayOf("*/*")) }) { Text("Import") }
+        },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize().fileDropTarget { importUri = it }) {
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -143,6 +150,18 @@ fun SetsScreen(nav: Navigator, snackbar: SnackbarHostState, incoming: Uri? = nul
             dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
         )
     }
+    if (combining) {
+        CombineSetsDialog(sets, onDismiss = { combining = false }, onCombine = { name, picked, switchOff ->
+            combining = false
+            scope.launch {
+                val created = withContext(Dispatchers.IO) {
+                    val id = app.words.combineSets(lang.code, name, picked, switchOff)
+                    app.words.set(id)
+                }
+                snackbar.showSnackbar("Combined into \"${created?.name ?: name}\" - ${created?.wordCount ?: 0} words")
+            }
+        })
+    }
     deleting?.let { set ->
         AlertDialog(
             onDismissRequest = { deleting = null },
@@ -157,6 +176,55 @@ fun SetsScreen(nav: Navigator, snackbar: SnackbarHostState, incoming: Uri? = nul
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
     }
+}
+
+/** Pick two or more sets and a name; the new set holds all their words. */
+@Composable
+private fun CombineSetsDialog(sets: List<WordSet>, onDismiss: () -> Unit, onCombine: (String, Set<Long>, Boolean) -> Unit) {
+    var picked by remember { mutableStateOf(emptySet<Long>()) }
+    var name by remember { mutableStateOf("") }
+    var switchOff by remember { mutableStateOf(true) }
+    val suggested = sets.filter { it.id in picked }.joinToString(" + ") { it.name }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Combine sets") },
+        text = {
+            Column {
+                Text(
+                    "Makes a new set of your own with every word of the sets you tick. Words keep their progress, and the originals stay.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name") },
+                    placeholder = { Text(suggested.ifEmpty { "Combined set" }) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                )
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                    sets.forEach { set ->
+                        val checked = set.id in picked
+                        Row(
+                            Modifier.fillMaxWidth().clickable { picked = if (checked) picked - set.id else picked + set.id },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(checked = checked, onCheckedChange = { picked = if (it) picked + set.id else picked - set.id })
+                            Text("${set.name} (${set.wordCount})", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth().clickable { switchOff = !switchOff }, verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = switchOff, onCheckedChange = { switchOff = it })
+                    Text("Switch the originals off", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = picked.size >= 2, onClick = { onCombine(name.ifBlank { suggested }, picked, switchOff) }) { Text("Combine") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

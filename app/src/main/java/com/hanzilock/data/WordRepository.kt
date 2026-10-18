@@ -222,6 +222,25 @@ class WordRepository(private val helper: AppDatabase) {
         return id
     }
 
+    /**
+     * A new set of your own holding every word of [setIds] (shared, so progress carries over); the
+     * originals stay, switched off if [switchOffOriginals]. Returns the new set's id.
+     */
+    fun combineSets(
+        lang: String, name: String, setIds: Collection<Long>, switchOffOriginals: Boolean,
+        now: Long = System.currentTimeMillis(),
+    ): Long {
+        val ids = setIds.joinToString(",")
+        val id = db.inTransaction {
+            val newId = insertSet(this, "custom.$lang.$now", lang, name.trim().ifEmpty { "Combined set" }, "Custom", 100, bundled = false, custom = true, enabled = true, now = now)
+            execSQL("INSERT OR IGNORE INTO set_words (set_id, word_id) SELECT DISTINCT $newId, word_id FROM set_words WHERE set_id IN ($ids)")
+            if (switchOffOriginals) execSQL("UPDATE sets SET enabled=0 WHERE id IN ($ids)")
+            newId
+        }
+        changed()
+        return id
+    }
+
     /** The "My words" set of a language (created on first use) - words you add by hand go here. */
     fun myWordsSet(lang: String): Long {
         setByKey("$lang.mine")?.let { return it.id }
