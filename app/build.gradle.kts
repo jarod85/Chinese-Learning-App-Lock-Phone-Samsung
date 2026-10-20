@@ -121,6 +121,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+    implementation(project(":shared"))
     implementation(libs.anthropic.java)
 
     testImplementation(libs.junit)

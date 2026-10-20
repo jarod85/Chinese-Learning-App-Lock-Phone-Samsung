@@ -8,10 +8,13 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.hanzilock.HanziLockApp
 import com.hanzilock.quiz.SessionKind
+import com.hanzilock.ui.LingoLockContent
 import com.hanzilock.ui.lock.LockScreen
 import com.hanzilock.ui.quiz.QuizViewModel
-import com.hanzilock.ui.theme.HanziTheme
 
 /** Full-screen practice gate shown instead of blocked apps while a session is due. */
 class LockActivity : ComponentActivity() {
@@ -28,7 +31,9 @@ class LockActivity : ComponentActivity() {
         }
     }
 
-    private val vm: QuizViewModel by viewModels()
+    private val vm: QuizViewModel by viewModels {
+        viewModelFactory { initializer { QuizViewModel(HanziLockApp.get(this@LockActivity).core) } }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,7 +44,7 @@ class LockActivity : ComponentActivity() {
         })
         vm.start(SessionKind.LOCK)
         setContent {
-            HanziTheme {
+            LingoLockContent(HanziLockApp.get(this)) {
                 LockScreen(vm = vm, onClose = { finishAndRemoveTask() })
             }
         }

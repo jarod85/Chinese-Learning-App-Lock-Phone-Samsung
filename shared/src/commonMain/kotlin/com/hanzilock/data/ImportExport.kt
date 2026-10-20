@@ -1,0 +1,123 @@
+package com.hanzilock.data
+
+import com.hanzilock.core.Languages
+import com.hanzilock.platform.PickedFile
+import com.hanzilock.quiz.Pinyin
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+
+/**
+ * Imports word lists (each import becomes its own set, so it never mixes into HSK 1 & co.),
+ * restores backups, and writes sets and backups as text (saved through the system file picker).
+ * Everything here blocks - call it from a background thread.
+ */
+class ImportExport(
+    private val words: WordRepository,
+    private val dictionary: DictionaryRepository,
+    private val corpus: ExampleCorpus,
+    private val languages: Languages,
+    private val filler: WordFiller,
+) {
+    data class ImportResult(
+        val setName: String?,
+        val lang: String,
+        val total: Int,
+        /** Words that were already known (e.g. in HSK 2) - linked, keeping their progress. */
+        val linked: Int,
+        /** New words whose meaning came from the dictionary, the file or Claude. */
+        val filled: Int,
+        /** Words still without a meaning (left out of practice until you add one). */
+        val incomplete: List<String>,
+        val restoredBackup: Boolean = false,
+    )
+
+    /** A set name from a file name: "hsk_food-words.csv" -> "Hsk food words". */
+    fun suggestedSetName(fileName: String?): String =
+        fileName?.substringBeforeLast('.')?.replace('_', ' ')?.replace('-', ' ')?.trim()
+            ?.replaceFirstChar { it.uppercaseChar() }?.takeIf { it.isNotEmpty() } ?: "Imported words"
+
+    fun import(file: PickedFile, lang: String, setName: String, progress: (String) -> Unit = {}): ImportResult {
+        val text = file.text
+        val trimmed = text.trimStart(ImportParser.BOM, ' ', '\n', '\r', '\t')
+        if (trimmed.startsWith("{")) return importJson(trimmed, lang, setName, progress)
+        return importWords(ImportParser.parseText(text), lang, setName, progress)
+    }
+
+    private fun importJson(json: String, lang: String, setName: String, progress: (String) -> Unit): ImportResult {
+        val root = AppJson.parseToJsonElement(json).jsonObject
+        if (root["format"]?.jsonPrimitive?.content == "hanzilock-backup") {
+            val backup = AppJson.decodeFromString<Backup>(json)
+            words.restore(backup)
+            return ImportResult(null, lang, backup.words.size, 0, 0, emptyList(), restoredBackup = true)
+        }
+        // A set file (e.g. exported from another phone) - or an old registry file (the app's first version).
+        val file = AppJson.decodeFromString<SetFile>(json)
+        val fileLang = if (root.containsKey("lang")) file.lang else lang
+        val name = file.name.ifBlank { setName }
+        val key = file.key.takeIf { it.isNotBlank() && words.setByKey(it)?.custom != false }
+            ?: "custom.$fileLang.${System.currentTimeMillis()}"
+        words.applySet(SetInfo(key, fileLang, name, "Custom", 100, custom = true, enabled = true), file, bundled = false)
+        val setId = words.setByKey(key)?.id ?: error("Set not saved")
+        val members = words.list(fileLang, scope = WordScope.InSet(setId), limit = Int.MAX_VALUE)
+        filler.fill(fileLang, members.map { it.id }, progress)
+        val incomplete = words.list(fileLang, WordFilter.INCOMPLETE, scope = WordScope.InSet(setId)).map { it.term }
+        return ImportResult(name, fileLang, file.words.size, 0, file.words.size - incomplete.size, incomplete)
+    }
+
+    /** Adds the words as a new set of [lang], filling in reading / meaning / example sentence. */
+    fun importWords(parsed: List<ParsedWord>, lang: String, setName: String, progress: (String) -> Unit = {}): ImportResult {
+        require(parsed.isNotEmpty()) { "No words found in the file." }
+        val setId = words.createSet(lang, setName)
+        var linked = 0
+        var filled = 0
+        val added = ArrayList<Long>()
+        parsed.forEachIndexed { i, p ->
+            if (i % 25 == 0) progress("Adding words… ${i + 1}/${parsed.size}")
+            val existing = words.find(lang, p.term) ?: words.find(lang, p.term.lowercase())
+            if (existing != null) {
+                words.addToSet(setId, existing.id)
+                added.add(existing.id)
+                linked++
+                return@forEachIndexed
+            }
+            val draft = complete(p, lang)
+            added.add(words.insert(draft, "import", setId))
+            if (draft.meanings.isNotEmpty()) filled++
+        }
+        // Readings, meanings and example sentences (with their reading) that are still missing come from Claude.
+        filled += filler.fill(lang, added, progress).gotMeaning
+        val incomplete = words.list(lang, WordFilter.INCOMPLETE, scope = WordScope.InSet(setId)).map { it.term }
+        return ImportResult(setName, lang, parsed.size, linked, filled, incomplete)
+    }
+
+    /** Reading / meanings / example from the file, then CC-CEDICT and the sentence corpus (Chinese). */
+    fun complete(p: ParsedWord, lang: String): WordDraft {
+        if (lang == "zh") {
+            val entry = dictionary.lookup(p.term).firstOrNull()
+            val reading = p.reading?.let { Pinyin.normalizeToMarked(it).ifEmpty { it } } ?: entry?.pinyinMarked.orEmpty()
+            val meanings = p.meaning?.let { listOf(it) } ?: entry?.definitions?.let(::cleanDefinitions).orEmpty()
+            return WordDraft(lang, p.term, p.traditional ?: entry?.traditional, reading, meanings, corpus.find(p.term))
+        }
+        return WordDraft(lang, p.term, p.traditional, p.reading.orEmpty(), p.meaning?.let { listOf(it) }.orEmpty(), emptyList())
+    }
+
+    /** The useful CC-CEDICT senses of a word, at most four (no measure words, surnames or variants). */
+    fun cleanDefinitions(defs: List<String>): List<String> {
+        val useful = defs.filterNot { it.startsWith("CL:") || it.startsWith("surname ") || it.contains("variant of") }
+            .map { it.replace(Regex("\\s*\\(CL:[^)]*\\)"), "") }
+        // Slang and archaic senses only when there's nothing else (机场 is "airport", not a VPN service).
+        val main = useful.filterNot { MINOR_SENSE.containsMatchIn(it) }
+        return main.ifEmpty { useful }.take(4).ifEmpty { defs.take(4) }
+    }
+
+    private val MINOR_SENSE = Regex("^\\((slang|Internet slang|archaic|old|dialect)\\)", RegexOption.IGNORE_CASE)
+
+    /** One set in the repo's set-file format (drop it into content/sets/custom and run tools/sets.py). */
+    fun exportSet(setId: Long): String {
+        val set = words.set(setId) ?: error("Set not found")
+        val list = words.list(set.lang, scope = WordScope.InSet(setId), limit = Int.MAX_VALUE)
+        return SetSync.format(SetFile(set.key, set.lang, set.name, null, list.map { it.toSetWord() }))
+    }
+
+    fun exportBackup(): String = ExportJson.encodeToString(Backup.serializer(), words.backup())
+}
