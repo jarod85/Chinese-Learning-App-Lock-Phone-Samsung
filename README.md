@@ -187,18 +187,60 @@ The Mac app is the same app with a desktop layout: a sidebar instead of the tabs
 shortcuts (⌘1 to ⌘6 for the tabs, Esc to go back, Return to check an answer, ← and → to turn a story's pages;
 right-click a word in a story to look it up). It needs a Mac with Apple silicon (M1 or newer) and macOS 13 or later.
 
-**Install** (once):
+### Setting up the Mac, step by step
 
-1. Download `lingo-lock-mac.zip` from the newest release of this repository (*Releases > Build N > Assets*). Safari
-   unpacks it to *Lingo Lock.app*.
-2. Drag *Lingo Lock.app* into *Applications* and open it.
-3. macOS says it can't check the app for malware, because it isn't signed with an Apple Developer account: click
-   **Done**, open *System Settings > Privacy & Security*, scroll down to *"Lingo Lock" was blocked…* and click
-   **Open Anyway** (and confirm). This is needed only once. If macOS instead says the app is damaged, run
-   `xattr -dr com.apple.quarantine "/Applications/Lingo Lock.app"` in Terminal and open it again.
-4. The setup checklist asks for a **master PIN** (the Mac has its own), the **microphone and speech recognition**
-   (macOS asks once) and a **voice** for the language you practise: *System Settings > Accessibility > Spoken Content >
-   System voice > Manage Voices…* (the *Premium* and *Enhanced* voices sound best).
+**1. Download the app.** On the Mac, open this repository on GitHub in Safari: *Releases* (right-hand side) > the
+newest *Build N* > *Assets* > `lingo-lock-mac.zip`. Safari unpacks it into *Lingo Lock.app* in *Downloads* (if you
+see only the zip, double-click it).
+
+**2. Put it in Applications.** Drag *Lingo Lock.app* from *Downloads* into *Applications* (Finder sidebar). Updates
+replace it there later, so keep it in that folder.
+
+**3. Open it the first time.** Double-click *Lingo Lock* in *Applications*. macOS says *"Lingo Lock" Not Opened* /
+it can't check the app for malware, because it isn't signed with an Apple Developer account. Click **Done**. Then:
+
+- open *System Settings > Privacy & Security*, scroll down to *Security*: *"Lingo Lock" was blocked to protect your
+  Mac*, click **Open Anyway** and confirm with your password or Touch ID;
+- in the dialog that follows, click **Open Anyway** again.
+
+This is needed only once (the button shows for about an hour after you tried to open the app). If macOS instead says
+the app *is damaged and can't be opened*, open *Terminal* and run
+`xattr -dr com.apple.quarantine "/Applications/Lingo Lock.app"`, then open the app again.
+
+**4. Wait for the first start.** The first time, Lingo Lock installs the word sets and the dictionary in the
+background (about half a minute).
+
+**5. Setup checklist** (it opens by itself; later: *Settings > Setup checklist*):
+
+- **Master PIN** > **Set PIN**: 4-12 digits. The Mac has its own PIN; it can be the same as the phone's. There's no
+  reset, so pick one you'll remember.
+- **Microphone and speech recognition** > **Allow**: macOS asks twice, *Allow* both. If you said no, the row shows
+  **Open**: allow Lingo Lock under *System Settings > Privacy & Security > Microphone* and *> Speech Recognition*.
+- **Mandarin Chinese voice** (or the language you practise) > **Open**: in *Spoken Content* click the *ⓘ* next to
+  *System voice* (*Manage Voices…*), find the language, and download a voice (the *Premium* or *Enhanced* ones sound
+  best). Back in Lingo Lock, **Play "你好"** checks it.
+- **Done**.
+
+**6. Claude (optional, as on the phone).** *Settings* (asks for the PIN) > *AI grading (Claude)*: paste your Anthropic
+API key, **Save**, then **Test**. On the Mac it's kept in your keychain.
+
+**7. Sync with the phone.** Make the GitHub token first if you haven't (see
+[Sync between your phone and Mac](#sync-between-your-phone-and-mac); the same token works on both devices). Then
+*Settings > Sync between your devices*:
+
+- *Repository*: `jarod85/lingo-lock-data` (yours: `<you>/lingo-lock-data`)
+- *GitHub token*: the token
+- *This device's name*: e.g. *MacBook Air*
+- **Save & sync now**. It should say *Synced … with 1 other device* once the phone has synced too. Your words, sets,
+  progress, stats, stories and the language you practise then appear on the Mac; the next sync of the phone brings the
+  Mac's back.
+
+**8. The practice gate (optional).** It's off on the Mac until you want it: *Settings > Practice lock on* (or the switch
+on Home). Choose the apps that stay usable under *Settings > Allowed apps*, then try it with **Lock now (test)** on Home.
+From then on Lingo Lock starts when you log in and stays in the menu bar.
+
+**9. Updates.** *Settings > App updates > Check for updates* > **Install**: Lingo Lock replaces itself and restarts. You
+don't need GitHub or Safari for updates.
 
 **Updates** come the same way as on the phone: *Settings > App updates > Check for updates* and **Install**. Lingo Lock
 downloads the new version, replaces itself and restarts. Your data stays in `~/Library/Application Support/Lingo Lock`
