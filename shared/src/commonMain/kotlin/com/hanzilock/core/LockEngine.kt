@@ -7,7 +7,8 @@ import java.time.ZoneId
  * Decides whether the phone should currently be gated.
  *
  * The lock is due when a daily reset time has passed since the last finished session - so if
- * several reset times pass while the phone is off, one session clears them all.
+ * several reset times pass while the phone is off, one session clears them all. A session finished
+ * on another of your devices counts too (sync brings it as [Settings.sharedCompletedAt]).
  */
 class LockEngine(
     private val settings: Settings,
@@ -30,8 +31,10 @@ class LockEngine(
         if (settings.pausedUntil > now) return false
         val last = ScheduleMath.mostRecentReset(settings.resetTimes, Instant.ofEpochMilli(now).atZone(zone()))
             ?: return false
-        return settings.lastCompletedAt < last.toInstant().toEpochMilli()
+        return lastCompletedAt() < last.toInstant().toEpochMilli()
     }
+
+    private fun lastCompletedAt() = maxOf(settings.lastCompletedAt, settings.sharedCompletedAt)
 
     fun nextResetAt(now: Long = System.currentTimeMillis()): Long? =
         ScheduleMath.nextReset(settings.resetTimes, Instant.ofEpochMilli(now).atZone(zone()))?.toInstant()?.toEpochMilli()
@@ -42,11 +45,13 @@ class LockEngine(
         manual = settings.manualLock,
         pausedUntil = settings.pausedUntil.takeIf { it > now },
         nextResetAt = nextResetAt(now),
-        lastCompletedAt = settings.lastCompletedAt,
+        lastCompletedAt = lastCompletedAt(),
     )
 
-    fun markCompleted(now: Long = System.currentTimeMillis()) {
+    /** A session is done; [shared] (it was finished, not skipped with the PIN) unlocks your other devices too. */
+    fun markCompleted(now: Long = System.currentTimeMillis(), shared: Boolean = false) {
         settings.lastCompletedAt = now
+        if (shared) settings.sharedCompletedAt = maxOf(settings.sharedCompletedAt, now)
         settings.manualLock = false
     }
 

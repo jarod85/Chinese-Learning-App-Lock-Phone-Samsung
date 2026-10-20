@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hanzilock.platform.LocalAppCore
+import com.hanzilock.platform.LocalPlatformUi
 import com.hanzilock.stories.WebStories
 import com.hanzilock.ui.main.Navigator
 import com.hanzilock.ui.main.ScreenScaffold
@@ -83,7 +84,7 @@ fun StoryBrowseScreen(nav: Navigator, snackbar: SnackbarHostState) {
             item {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "Graded stories from mandarinbean.com, sorted by HSK level. A story you open is loaded onto your phone for your own reading.",
+                        "Graded stories from mandarinbean.com, sorted by HSK level. A story you open is loaded onto your ${LocalPlatformUi.current.deviceName} for your own reading.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

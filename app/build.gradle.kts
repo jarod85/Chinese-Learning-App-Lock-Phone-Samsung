@@ -15,19 +15,9 @@ val keystoreProps = Properties().apply {
     if (file.exists()) file.inputStream().use { load(it) }
 }
 
-// The build number is the number of commits, so every committed update installs as a newer version
-// (Settings > About shows it). Without git it falls back to 1; `adb install -r` accepts equal numbers.
-val commitCount: Int = runCatching {
-    providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }.standardOutput.asText.get().trim().toInt()
-}.getOrDefault(1)
-
-// The GitHub repository ("owner/name") the app downloads new builds from, taken from the git remote.
-// Empty (e.g. no git or not a GitHub remote) switches the in-app updater off.
-val updateRepo: String = runCatching {
-    providers.exec { commandLine("git", "remote", "get-url", "origin") }.standardOutput.asText.get().trim()
-}.getOrDefault("").let { url ->
-    Regex("""github\.com[/:]([^/]+/[^/]+?)(\.git)?/?$""").find(url)?.groupValues?.get(1).orEmpty()
-}
+// Build number, version and update repository: see the root build.gradle.kts.
+val commitCount: Int by rootProject.extra
+val updateRepo: String by rootProject.extra
 
 android {
     namespace = "com.hanzilock"
@@ -39,7 +29,7 @@ android {
         minSdk = 31
         targetSdk = 35
         versionCode = commitCount
-        versionName = "1.2.0"
+        versionName = rootProject.extra["versionName"] as String
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
     }
 

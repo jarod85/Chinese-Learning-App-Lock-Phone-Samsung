@@ -27,6 +27,7 @@ class AndroidPlatform(private val context: Context) : Platform {
 
     override val buildNumber: Int = BuildConfig.VERSION_CODE
     override val versionName: String = BuildConfig.VERSION_NAME
+    override val deviceName = "Phone"
 
     override fun openDatabase(schema: SqlSchema): SqlDb = AndroidSqlDb.open(context, schema)
     override fun createSpeaker(): Speaker = AndroidSpeaker(context)

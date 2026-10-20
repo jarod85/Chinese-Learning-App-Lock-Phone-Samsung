@@ -16,6 +16,9 @@ interface Platform {
     val buildNumber: Int
     val versionName: String
 
+    /** What this device is called in the sync repository until you name it ("Phone", "Mac"). */
+    val deviceName: String
+
     /** Opens (creating or migrating) the database file [schema] describes. */
     fun openDatabase(schema: SqlSchema): SqlDb
 

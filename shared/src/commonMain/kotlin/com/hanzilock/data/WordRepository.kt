@@ -14,6 +14,7 @@ import kotlinx.serialization.json.JsonNames
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.UUID
 
 enum class WordFilter(val label: String) {
     ALL("All"), DUE("Due"), WEAK("Weak"), NEW("New"), INCOMPLETE("Needs details"), DISABLED("Off")
@@ -27,13 +28,13 @@ sealed interface WordScope {
 }
 
 /** All reads/writes of words, sets, sessions and attempts. Call from a background thread. */
-class WordRepository(private val db: SqlDb) {
+class WordRepository(internal val db: SqlDb) {
     private val _changes = MutableStateFlow(0L)
 
     /** Increments after every write, so screens know to reload. */
     val changes: StateFlow<Long> = _changes
 
-    private fun changed() = _changes.update { it + 1 }
+    internal fun changed() = _changes.update { it + 1 }
 
     // ---- words --------------------------------------------------------------------------------
 
@@ -115,6 +116,7 @@ class WordRepository(private val db: SqlDb) {
         d.insertOrThrow("words", null, contentOf(draft).apply {
             put("lang", draft.lang)
             put("source", source)
+            put("touched", if (source == "set") 0 else 1)
             put("created_at", now)
             put("updated_at", now)
         })
@@ -122,6 +124,7 @@ class WordRepository(private val db: SqlDb) {
     fun update(id: Long, draft: WordDraft, now: Long = System.currentTimeMillis()) {
         db.update("words", contentOf(draft).apply {
             put("user_edited", 1)
+            put("touched", 1)
             put("updated_at", now)
         }, "id=?", arrayOf(id.toString()))
         changed()
@@ -133,6 +136,7 @@ class WordRepository(private val db: SqlDb) {
             if (!reading.isNullOrBlank()) put("reading", reading)
             if (meanings.isNotEmpty()) put("meanings", AppJson.encodeToString(meanings))
             if (examples.isNotEmpty()) put("examples", AppJson.encodeToString(examples))
+            put("touched", 1)
             put("updated_at", System.currentTimeMillis())
         }, "id=?", arrayOf(id.toString()))
         changed()
@@ -144,17 +148,25 @@ class WordRepository(private val db: SqlDb) {
         if (clean.isEmpty() || word.acceptedMeanings.any { it.equals(clean, ignoreCase = true) }) return
         db.update("words", ContentValues().apply {
             put("alt_meanings", AppJson.encodeToString(word.altMeanings + clean))
+            put("touched", 1)
+            put("updated_at", System.currentTimeMillis())
         }, "id=?", arrayOf(id.toString()))
         changed()
     }
 
     fun setEnabled(id: Long, enabled: Boolean) {
-        db.update("words", ContentValues().apply { put("enabled", if (enabled) 1 else 0) }, "id=?", arrayOf(id.toString()))
+        db.update("words", ContentValues().apply {
+            put("enabled", if (enabled) 1 else 0)
+            put("touched", 1)
+            put("updated_at", System.currentTimeMillis())
+        }, "id=?", arrayOf(id.toString()))
         changed()
     }
 
     fun delete(id: Long) {
+        val word = get(id) ?: return
         db.inTransaction {
+            recordDeletion(this, DELETED_WORD, wordKey(word.lang, word.term))
             delete("set_words", "word_id=?", arrayOf(id.toString()))
             delete("words", "id=?", arrayOf(id.toString()))
         }
@@ -188,18 +200,26 @@ class WordRepository(private val db: SqlDb) {
     ).mapRows { it.toSet() }
 
     fun setSetEnabled(setId: Long, enabled: Boolean) {
-        db.update("sets", ContentValues().apply { put("enabled", if (enabled) 1 else 0) }, "id=?", arrayOf(setId.toString()))
+        db.update("sets", ContentValues().apply {
+            put("enabled", if (enabled) 1 else 0)
+            put("updated_at", System.currentTimeMillis())
+        }, "id=?", arrayOf(setId.toString()))
         changed()
     }
 
     fun renameSet(setId: Long, name: String) {
-        db.update("sets", ContentValues().apply { put("name", name.trim()) }, "id=?", arrayOf(setId.toString()))
+        db.update("sets", ContentValues().apply {
+            put("name", name.trim())
+            put("updated_at", System.currentTimeMillis())
+        }, "id=?", arrayOf(setId.toString()))
         changed()
     }
 
     /** Removes a set. Its words stay if they belong to another set; otherwise they are deleted too. */
     fun deleteSet(setId: Long) {
         db.inTransaction {
+            rawQuery("SELECT key FROM sets WHERE id=?", arrayOf(setId.toString())).mapRows { it.str("key") }.firstOrNull()
+                ?.let { recordDeletion(this, DELETED_SET, it) }
             val members = rawQuery("SELECT word_id FROM set_words WHERE set_id=?", arrayOf(setId.toString())).mapRows { it.getLong(0) }
             delete("set_words", "set_id=?", arrayOf(setId.toString()))
             delete("sets", "id=?", arrayOf(setId.toString()))
@@ -212,7 +232,7 @@ class WordRepository(private val db: SqlDb) {
     }
 
     fun createSet(lang: String, name: String, custom: Boolean = true, enabled: Boolean = true, now: Long = System.currentTimeMillis()): Long {
-        val id = insertSet(db, "custom.$lang.$now", lang, name.trim().ifEmpty { "My set" }, "Custom", 100, bundled = false, custom = custom, enabled = enabled, now = now)
+        val id = insertSet(db, customSetKey(lang, now), lang, name.trim().ifEmpty { "My set" }, "Custom", 100, bundled = false, custom = custom, enabled = enabled, now = now)
         changed()
         return id
     }
@@ -227,9 +247,10 @@ class WordRepository(private val db: SqlDb) {
     ): Long {
         val ids = setIds.joinToString(",")
         val id = db.inTransaction {
-            val newId = insertSet(this, "custom.$lang.$now", lang, name.trim().ifEmpty { "Combined set" }, "Custom", 100, bundled = false, custom = true, enabled = true, now = now)
-            execSQL("INSERT OR IGNORE INTO set_words (set_id, word_id) SELECT DISTINCT $newId, word_id FROM set_words WHERE set_id IN ($ids)")
-            if (switchOffOriginals) execSQL("UPDATE sets SET enabled=0 WHERE id IN ($ids)")
+            val newId = insertSet(this, customSetKey(lang, now), lang, name.trim().ifEmpty { "Combined set" }, "Custom", 100, bundled = false, custom = true, enabled = true, now = now)
+            execSQL("INSERT OR IGNORE INTO set_words (set_id, word_id, added_at) SELECT DISTINCT $newId, word_id, $now FROM set_words WHERE set_id IN ($ids)")
+            execSQL("UPDATE words SET touched=1 WHERE id IN (SELECT word_id FROM set_words WHERE set_id=$newId)")
+            if (switchOffOriginals) execSQL("UPDATE sets SET enabled=0, updated_at=$now WHERE id IN ($ids)")
             newId
         }
         changed()
@@ -250,7 +271,12 @@ class WordRepository(private val db: SqlDb) {
     }
 
     fun removeFromSet(setId: Long, wordId: Long) {
-        db.delete("set_words", "set_id=? AND word_id=?", arrayOf(setId.toString(), wordId.toString()))
+        val set = set(setId) ?: return
+        val word = get(wordId) ?: return
+        db.inTransaction {
+            recordDeletion(this, DELETED_MEMBER, memberKey(set.key, word.lang, word.term))
+            delete("set_words", "set_id=? AND word_id=?", arrayOf(setId.toString(), wordId.toString()))
+        }
         changed()
     }
 
@@ -270,15 +296,29 @@ class WordRepository(private val db: SqlDb) {
     ): Long = d.insertOrThrow("sets", null, ContentValues().apply {
         put("key", key); put("lang", lang); put("name", name); put("level", level); put("sort", sort)
         put("bundled", if (bundled) 1 else 0); put("custom", if (custom) 1 else 0); put("enabled", if (enabled) 1 else 0)
-        put("rev", rev); put("created_at", now)
+        // A bundled set as installed counts as never changed, so switching it on or off anywhere wins.
+        put("rev", rev); put("created_at", now); put("updated_at", if (bundled) 0L else now)
     })
 
-    private fun addMembership(d: SqlDb, setId: Long, wordId: Long) {
+    /** Puts a word in a set; words in your own ([custom]) sets are synced. */
+    internal fun addMembership(d: SqlDb, setId: Long, wordId: Long, now: Long = System.currentTimeMillis(), custom: Boolean = true) {
         d.insertWithOnConflict("set_words", null, ContentValues().apply {
             put("set_id", setId)
             put("word_id", wordId)
+            put("added_at", now)
         }, SqlDb.CONFLICT_IGNORE)
+        if (custom) d.execSQL("UPDATE words SET touched=1 WHERE id=?", arrayOf<Any?>(wordId))
     }
+
+    /** Remembers that something was deleted here, so your other devices delete it too. */
+    internal fun recordDeletion(d: SqlDb, kind: String, key: String, at: Long = System.currentTimeMillis()) {
+        d.insertWithOnConflict("deletions", null, ContentValues().apply {
+            put("kind", kind); put("key", key); put("at", at)
+        }, SqlDb.CONFLICT_REPLACE)
+    }
+
+    /** "custom.es.1760000000000.k3x9": unique across your devices. */
+    private fun customSetKey(lang: String, now: Long) = "custom.$lang.$now.${UUID.randomUUID().toString().take(4)}"
 
     /**
      * Installs or updates a set from a set file: new words are added, words you never edited get the
@@ -366,6 +406,7 @@ class WordRepository(private val db: SqlDb) {
 
     fun createSession(kind: String, lang: String, now: Long): Long {
         val id = db.insertOrThrow("sessions", null, ContentValues().apply {
+            put("uid", newUid())
             put("kind", kind)
             put("lang", lang)
             put("started_at", now)
@@ -398,10 +439,11 @@ class WordRepository(private val db: SqlDb) {
         val (box, due) = Srs.schedule(word.box, win, now)
         db.inTransaction {
             execSQL(
-                "UPDATE words SET box=?, due_at=?, wins=wins+?, losses=losses+?, last_seen_at=? WHERE id=?",
+                "UPDATE words SET box=?, due_at=?, wins=wins+?, losses=losses+?, last_seen_at=?, touched=1 WHERE id=?",
                 arrayOf<Any>(box, due, if (win) 1 else 0, if (win) 0 else 1, now, word.id),
             )
             insertOrThrow("attempts", null, ContentValues().apply {
+                put("uid", newUid())
                 if (sessionId != null) put("session_id", sessionId)
                 put("word_id", word.id)
                 put("lang", word.lang)
@@ -492,11 +534,11 @@ class WordRepository(private val db: SqlDb) {
             },
             sessions = db.rawQuery("SELECT * FROM sessions ORDER BY id", null).mapRows {
                 BackupSession(it.long("id"), it.str("kind"), it.str("lang"), it.long("started_at"), it.longOrNull("finished_at"),
-                    it.strOrNull("outcome"), it.int("wins"), it.int("losses"))
+                    it.strOrNull("outcome"), it.int("wins"), it.int("losses"), it.strOrNull("uid"))
             },
-            attempts = db.rawQuery("SELECT * FROM attempts ORDER BY id", null).mapRows { it.toAttempt() }.map { a ->
+            attempts = db.rawQuery("SELECT * FROM attempts ORDER BY id", null).mapRows { it.toAttempt() to it.strOrNull("uid") }.map { (a, uid) ->
                 BackupAttempt(a.sessionId, a.lang, a.term, a.at, a.win, a.failedPart?.name, a.heard, a.meaningAnswer,
-                    a.sentenceAnswer, a.feedback, a.gradedBy)
+                    a.sentenceAnswer, a.feedback, a.gradedBy, uid)
             },
         )
     }
@@ -522,6 +564,7 @@ class WordRepository(private val db: SqlDb) {
                     put("enabled", if (w.enabled) 1 else 0); put("box", w.box); put("due_at", w.dueAt)
                     put("wins", w.wins); put("losses", w.losses); put("last_seen_at", w.lastSeenAt)
                     put("created_at", w.createdAt); put("updated_at", w.createdAt)
+                    put("touched", if (w.source == "set" || w.source == "registry") 0 else 1)
                 })
             }
             val sets = backup.sets.ifEmpty {
@@ -538,12 +581,13 @@ class WordRepository(private val db: SqlDb) {
             }
             for (s in backup.sessions) {
                 insertOrThrow("sessions", null, ContentValues().apply {
-                    put("id", s.id); put("kind", s.kind); put("lang", s.lang); put("started_at", s.startedAt)
+                    put("id", s.id); put("uid", s.uid ?: newUid()); put("kind", s.kind); put("lang", s.lang); put("started_at", s.startedAt)
                     put("finished_at", s.finishedAt); put("outcome", s.outcome); put("wins", s.wins); put("losses", s.losses)
                 })
             }
             for (a in backup.attempts) {
                 insertOrThrow("attempts", null, ContentValues().apply {
+                    put("uid", a.uid ?: newUid())
                     if (a.sessionId != null) put("session_id", a.sessionId)
                     put("word_id", ids[a.lang to a.term] ?: -1L); put("lang", a.lang); put("term", a.term); put("at", a.at)
                     put("win", if (a.win) 1 else 0); put("failed_part", a.failedPart); put("heard", a.heard)
@@ -620,8 +664,18 @@ class WordRepository(private val db: SqlDb) {
         gradedBy = strOrNull("graded_by"),
     )
 
-    private fun decodeStrings(s: String): List<String> =
+    internal fun decodeStrings(s: String): List<String> =
         runCatching { AppJson.decodeFromString<List<String>>(s) }.getOrDefault(emptyList())
+
+    companion object {
+        const val DELETED_WORD = "word"
+        const val DELETED_SET = "set"
+        const val DELETED_MEMBER = "member"
+
+        fun wordKey(lang: String, term: String) = "$lang\t$term"
+        fun memberKey(setKey: String, lang: String, term: String) = "$setKey\t$lang\t$term"
+        fun newUid(): String = UUID.randomUUID().toString().replace("-", "")
+    }
 }
 
 fun SetWord.toDraft(lang: String) = WordDraft(
@@ -687,6 +741,7 @@ data class BackupSession(
     val outcome: String? = null,
     val wins: Int = 0,
     val losses: Int = 0,
+    val uid: String? = null,
 )
 
 @Serializable
@@ -702,6 +757,7 @@ data class BackupAttempt(
     val sentenceAnswer: String? = null,
     val feedback: String? = null,
     val gradedBy: String? = null,
+    val uid: String? = null,
 )
 
 @Serializable

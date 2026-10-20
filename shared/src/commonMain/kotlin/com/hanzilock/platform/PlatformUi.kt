@@ -3,6 +3,7 @@ package com.hanzilock.platform
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.KeyEvent
 import com.hanzilock.AppCore
 import com.hanzilock.ui.main.Navigator
 
@@ -33,6 +34,13 @@ interface PlatformUi {
 
     @Composable
     fun BackHandler(enabled: Boolean, onBack: () -> Unit)
+
+    /**
+     * Keyboard shortcuts while this is on screen, for keys no text field used (a computer's keyboard;
+     * the phone ignores them). [onKey] returns true when it handled the key.
+     */
+    @Composable
+    fun KeyShortcuts(onKey: (KeyEvent) -> Boolean)
 
     /** An action that runs [onGranted] once the microphone may be used (asking for it first if needed). */
     @Composable

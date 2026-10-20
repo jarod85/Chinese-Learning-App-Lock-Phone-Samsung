@@ -2,11 +2,12 @@ package com.hanzilock.data
 
 /**
  * Words (per language) and the sets they belong to, practice sessions and every graded attempt.
- * Version 2 added languages and word sets; installs from version 1 are migrated in place.
+ * Version 2 added languages and word sets, version 3 what syncing between your devices needs; older
+ * installs are migrated in place.
  */
 object AppDatabase : SqlSchema {
     override val fileName = "hanzilock.db"
-    override val version = 2
+    override val version = 3
     override val writeAheadLogging = true
 
     override fun onCreate(db: SqlDb) {
@@ -46,6 +47,7 @@ object AppDatabase : SqlSchema {
             """.trimIndent(),
         )
         createIndexes(db)
+        migrateToV3(db)
     }
 
     private fun createWords(db: SqlDb, table: String) {
@@ -117,6 +119,7 @@ object AppDatabase : SqlSchema {
 
     override fun onUpgrade(db: SqlDb, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) migrateToV2(db)
+        if (oldVersion < 3) migrateToV3(db)
     }
 
     /** v1 had Chinese-only words keyed by hanzi and no sets. */
@@ -151,5 +154,27 @@ object AppDatabase : SqlSchema {
         db.execSQL("DROP INDEX IF EXISTS attempts_at")
         db.execSQL("DROP INDEX IF EXISTS words_due")
         createIndexes(db)
+    }
+
+    /**
+     * v3: ids that are the same on every device (sessions, attempts), when sets and memberships changed,
+     * which words are worth syncing, and what was deleted.
+     */
+    private fun migrateToV3(db: SqlDb) {
+        db.execSQL("ALTER TABLE sessions ADD COLUMN uid TEXT")
+        db.execSQL("ALTER TABLE attempts ADD COLUMN uid TEXT")
+        db.execSQL("UPDATE sessions SET uid=lower(hex(randomblob(16))) WHERE uid IS NULL")
+        db.execSQL("UPDATE attempts SET uid=lower(hex(randomblob(16))) WHERE uid IS NULL")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS sessions_uid ON sessions(uid)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS attempts_uid ON attempts(uid)")
+        db.execSQL("ALTER TABLE sets ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE set_words ADD COLUMN added_at INTEGER NOT NULL DEFAULT 0")
+        // Words to sync besides practised ones: edited, switched off, added by you, or in your own sets.
+        db.execSQL("ALTER TABLE words ADD COLUMN touched INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            "UPDATE words SET touched=1 WHERE user_edited=1 OR enabled=0 OR alt_meanings<>'[]' OR source NOT IN ('set', 'registry') " +
+                "OR id IN (SELECT sw.word_id FROM set_words sw JOIN sets s ON s.id=sw.set_id WHERE s.custom=1)",
+        )
+        db.execSQL("CREATE TABLE IF NOT EXISTS deletions (kind TEXT NOT NULL, key TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (kind, key))")
     }
 }

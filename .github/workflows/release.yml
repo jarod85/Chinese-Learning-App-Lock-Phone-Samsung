@@ -1,6 +1,6 @@
 # Builds Lingo Lock on every push to main and publishes it as a GitHub release named "build-<N>"
-# (N = number of commits, the app's build number). The app on the phone finds the newest release
-# and updates itself - no cable or computer needed.
+# (N = number of commits, the app's build number): the phone app (lingo-lock.apk), then the Mac app
+# (lingo-lock-mac.zip). Both find the newest release and update themselves - no cable needed.
 #
 # One-time setup: run tools\setup-cloud-builds.ps1 on the PC. It stores your signing key as
 # encrypted repository secrets, so these builds install over the app without losing progress.
@@ -22,6 +22,8 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-24.04
+    outputs:
+      ready: ${{ steps.key.outputs.ready }}
     steps:
       - name: Check for the signing key
         id: key
@@ -66,7 +68,7 @@ jobs:
             echo "keyPassword=$KEY_PASSWORD"
           } > keystore/keystore.properties
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest :app:assembleRelease --console=plain
+          ./gradlew :shared:testDebugUnitTest :app:assembleRelease --console=plain
           rm -rf keystore
 
       - name: Publish the release
@@ -86,3 +88,43 @@ jobs:
           # Keep the 5 newest builds (each APK is about 45 MB).
           gh release list --limit 100 --json tagName --jq '.[].tagName' | grep '^build-' | tail -n +6 |
             xargs -r -n 1 gh release delete --cleanup-tag --yes
+
+  # The Mac app, added to the same release. It needs no secrets: it is signed ad hoc (no Apple
+  # Developer account), so the first launch needs "Open Anyway" once (README, "Lingo Lock on the Mac").
+  mac:
+    needs: release
+    if: needs.release.outputs.ready == 'true'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the build number is the commit count
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Build the speech helper
+        run: sh macos/lingo-helper/build.sh
+
+      - name: Build the Mac app (unit tests + Lingo Lock.app)
+        run: |
+          chmod +x gradlew
+          ./gradlew :shared:desktopTest :desktop:createDistributable --console=plain
+
+      - name: Sign ad hoc and zip
+        run: |
+          app="desktop/build/compose/binaries/main/app/Lingo Lock.app"
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          ditto -c -k --keepParent "$app" lingo-lock-mac.zip
+
+      - name: Add it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build=$(git rev-list --count HEAD)
+          gh release upload "build-$build" lingo-lock-mac.zip --clobber

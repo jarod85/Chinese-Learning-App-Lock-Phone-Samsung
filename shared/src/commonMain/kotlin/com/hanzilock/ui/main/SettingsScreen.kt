@@ -251,6 +251,10 @@ fun SettingsScreen(nav: Navigator, snackbar: SnackbarHostState) {
             )
             OutlinedButton(onClick = ::exportBackup) { Text("Backup") }
 
+            // ---- sync ----
+            SectionTitle("Sync between your devices")
+            SyncPanel()
+
             // ---- security & setup ----
             SectionTitle("Security & setup")
             NavRow("Change master PIN", null) { changePin = true }

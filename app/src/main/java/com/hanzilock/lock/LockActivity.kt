@@ -8,6 +8,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.hanzilock.HanziLockApp
@@ -15,6 +16,8 @@ import com.hanzilock.quiz.SessionKind
 import com.hanzilock.ui.LingoLockContent
 import com.hanzilock.ui.lock.LockScreen
 import com.hanzilock.ui.quiz.QuizViewModel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Full-screen practice gate shown instead of blocked apps while a session is due. */
 class LockActivity : ComponentActivity() {
@@ -23,6 +26,8 @@ class LockActivity : ComponentActivity() {
         @Volatile
         var visible = false
             private set
+
+        private const val SYNC_TIMEOUT_MS = 4_000L
 
         fun launch(context: Context) {
             val intent = Intent(context, LockActivity::class.java)
@@ -42,7 +47,12 @@ class LockActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() = Unit
         })
-        vm.start(SessionKind.LOCK)
+        // A session finished on your other device may have unlocked this one already: sync first (briefly).
+        val core = HanziLockApp.get(this).core
+        lifecycleScope.launch {
+            withTimeoutOrNull(SYNC_TIMEOUT_MS) { core.sync.syncNow() }
+            vm.start(SessionKind.LOCK)
+        }
         setContent {
             LingoLockContent(HanziLockApp.get(this)) {
                 LockScreen(vm = vm, onClose = { finishAndRemoveTask() })

@@ -55,6 +55,13 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -71,6 +78,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hanzilock.data.DictEntry
 import com.hanzilock.platform.LocalAppCore
+import com.hanzilock.platform.LocalPlatformUi
 import com.hanzilock.stories.Story
 import com.hanzilock.stories.StoryAnswerReview
 import com.hanzilock.ui.common.AppIcons
@@ -119,6 +127,21 @@ private fun Reader(nav: Navigator, vm: StoryViewModel, ui: StoryViewModel.Ui, st
     val pager = rememberPagerState(initialPage = story.page.coerceIn(0, pageCount - 1)) { pageCount }
     val scope = rememberCoroutineScope()
     val onStoryPage = pager.currentPage < ui.pages.size
+
+    // ← and → turn the pages on a computer's keyboard.
+    LocalPlatformUi.current.KeyShortcuts { e ->
+        val step = when (e.key) {
+            Key.DirectionLeft -> -1
+            Key.DirectionRight -> 1
+            else -> 0
+        }
+        if (e.type == KeyEventType.KeyDown && step != 0) {
+            scope.launch { pager.animateScrollToPage((pager.currentPage + step).coerceIn(0, pageCount - 1)) }
+            true
+        } else {
+            false
+        }
+    }
 
     LaunchedEffect(pager) {
         snapshotFlow { pager.settledPage }.collect { page ->
@@ -314,6 +337,22 @@ private fun StoryParagraph(
         modifier = Modifier
             .fillMaxWidth()
             .onGloballyPositioned { coords = it }
+            .pointerInput(block) {
+                // With a mouse, a right-click looks the word up too.
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.type != PointerEventType.Press || !event.buttons.isSecondaryPressed) continue
+                        val l = layout ?: continue
+                        val pos = event.changes.first().position
+                        val word = wordAt(block, l, pos)
+                        if (word >= 0) {
+                            event.changes.forEach { it.consume() }
+                            press(word, (coords?.positionInWindow()?.y ?: 0f) + pos.y)
+                        }
+                    }
+                }
+            }
             .pointerInput(block) {
                 detectTapGestures(
                     onLongPress = { pos ->

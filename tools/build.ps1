@@ -22,7 +22,7 @@ if (-not (Test-Path (Join-Path $repo '.toolchain\jdk\bin\java.exe')) -or
 
 $variant = if ($DebugBuild) { 'debug' } else { 'release' }
 $tasks = @()
-if (-not $SkipTests) { $tasks += ':app:testDebugUnitTest' }
+if (-not $SkipTests) { $tasks += ':shared:testDebugUnitTest' }
 $tasks += if ($DebugBuild) { ':app:assembleDebug' } else { ':app:assembleRelease' }
 
 Push-Location $repo

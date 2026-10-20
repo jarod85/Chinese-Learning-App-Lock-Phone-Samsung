@@ -20,6 +20,7 @@ import com.hanzilock.speech.Speaker
 import com.hanzilock.speech.SpeechInput
 import com.hanzilock.stories.StoryImporter
 import com.hanzilock.stories.StoryRepository
+import com.hanzilock.sync.SyncManager
 import com.hanzilock.update.Updater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +50,7 @@ class AppCore(val platform: Platform) {
     val updater: Updater = platform.createUpdater(scope)
     val stories = StoryRepository(platform.openDatabase(StoryRepository.Schema))
     val storyImporter = StoryImporter(stories, dictionary) { graderOrNull() }
+    val sync = SyncManager(this, platform.deviceName)
 
     private val _ready = MutableStateFlow(false)
 
@@ -69,6 +71,7 @@ class AppCore(val platform: Platform) {
             ready.first { it }
             runCatching { filler.fillNewWords() }
         }
+        sync.start()
     }
 
     fun newSpeechInput(): SpeechInput = platform.createSpeechInput()

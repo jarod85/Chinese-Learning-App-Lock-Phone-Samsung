@@ -4,6 +4,8 @@ import com.hanzilock.data.AppJson
 import com.hanzilock.data.ContentValues
 import com.hanzilock.data.SqlDb
 import com.hanzilock.data.SqlSchema
+import com.hanzilock.data.WordRepository
+import com.hanzilock.data.inTransaction
 import com.hanzilock.data.int
 import com.hanzilock.data.long
 import com.hanzilock.data.longOrNull
@@ -19,10 +21,11 @@ import kotlinx.coroutines.flow.update
  * Your stories, in their own database file (stories.db) next to the words. Each story's text,
  * translations and questions are one JSON column. Call from a background thread.
  */
-class StoryRepository(private val db: SqlDb) {
+class StoryRepository(internal val db: SqlDb) {
+    /** Version 2 added what syncing between your devices needs: an id per story, when it changed, deletions. */
     object Schema : SqlSchema {
         override val fileName = "stories.db"
-        override val version = 1
+        override val version = 2
 
         override fun onCreate(db: SqlDb) {
             db.execSQL(
@@ -43,9 +46,21 @@ class StoryRepository(private val db: SqlDb) {
                 )
                 """.trimIndent(),
             )
+            migrateToV2(db)
         }
 
-        override fun onUpgrade(db: SqlDb, oldVersion: Int, newVersion: Int) = Unit
+        override fun onUpgrade(db: SqlDb, oldVersion: Int, newVersion: Int) {
+            if (oldVersion < 2) migrateToV2(db)
+        }
+
+        private fun migrateToV2(db: SqlDb) {
+            db.execSQL("ALTER TABLE stories ADD COLUMN uid TEXT")
+            db.execSQL("UPDATE stories SET uid=lower(hex(randomblob(16))) WHERE uid IS NULL")
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS stories_uid ON stories(uid)")
+            db.execSQL("ALTER TABLE stories ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("UPDATE stories SET updated_at=created_at")
+            db.execSQL("CREATE TABLE IF NOT EXISTS deletions (kind TEXT NOT NULL, key TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (kind, key))")
+        }
     }
 
     private val _changes = MutableStateFlow(0L)
@@ -53,7 +68,7 @@ class StoryRepository(private val db: SqlDb) {
     /** Increments after every write, so the story list knows to reload. */
     val changes: StateFlow<Long> = _changes
 
-    private fun changed() = _changes.update { it + 1 }
+    internal fun changed() = _changes.update { it + 1 }
 
     fun list(): List<StorySummary> = db.rawQuery(
         "SELECT id, title, title_en, source, level, chars, pages, page, finished_at, created_at FROM stories ORDER BY created_at DESC",
@@ -100,7 +115,9 @@ class StoryRepository(private val db: SqlDb) {
 
     fun add(draft: StoryDraft): Long {
         val chunks = draft.body.chunks
+        val now = System.currentTimeMillis()
         val id = db.insertOrThrow("stories", null, ContentValues().apply {
+            put("uid", WordRepository.newUid())
             put("title", draft.title)
             put("title_en", draft.titleEn)
             put("source", draft.source)
@@ -109,7 +126,8 @@ class StoryRepository(private val db: SqlDb) {
             put("chars", chunks.sumOf { c -> StoryText.join(c.tokens).count(SentenceTiles::isHanChar) })
             put("pages", StoryText.paginate(chunks).size.coerceAtLeast(1))
             put("body", AppJson.encodeToString(StoryBody.serializer(), draft.body))
-            put("created_at", System.currentTimeMillis())
+            put("created_at", now)
+            put("updated_at", now)
         })
         changed()
         return id
@@ -117,21 +135,43 @@ class StoryRepository(private val db: SqlDb) {
 
     /** Saves new translations or questions. */
     fun saveBody(id: Long, body: StoryBody) {
-        db.update("stories", ContentValues().apply { put("body", AppJson.encodeToString(StoryBody.serializer(), body)) }, "id=?", arrayOf(id.toString()))
+        db.update("stories", ContentValues().apply {
+            put("body", AppJson.encodeToString(StoryBody.serializer(), body))
+            put("updated_at", System.currentTimeMillis())
+        }, "id=?", arrayOf(id.toString()))
     }
 
     fun savePage(id: Long, page: Int) {
-        db.update("stories", ContentValues().apply { put("page", page) }, "id=?", arrayOf(id.toString()))
+        db.update("stories", ContentValues().apply {
+            put("page", page)
+            put("updated_at", System.currentTimeMillis())
+        }, "id=?", arrayOf(id.toString()))
         changed()
     }
 
     fun markFinished(id: Long) {
-        db.update("stories", ContentValues().apply { put("finished_at", System.currentTimeMillis()) }, "id=?", arrayOf(id.toString()))
+        val now = System.currentTimeMillis()
+        db.update("stories", ContentValues().apply {
+            put("finished_at", now)
+            put("updated_at", now)
+        }, "id=?", arrayOf(id.toString()))
         changed()
     }
 
     fun delete(id: Long) {
-        db.delete("stories", "id=?", arrayOf(id.toString()))
+        db.inTransaction {
+            rawQuery("SELECT uid FROM stories WHERE id=?", arrayOf(id.toString())).mapRows { it.strOrNull("uid") }.firstOrNull()?.let { uid ->
+                insertWithOnConflict("deletions", null, ContentValues().apply {
+                    put("kind", DELETED_STORY); put("key", uid); put("at", System.currentTimeMillis())
+                }, SqlDb.CONFLICT_REPLACE)
+            }
+            delete("stories", "id=?", arrayOf(id.toString()))
+        }
         changed()
+    }
+
+    companion object {
+        /** The kind of a story's entry in the deletions table (its key is the story's uid). */
+        const val DELETED_STORY = "story"
     }
 }

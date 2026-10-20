@@ -35,7 +35,8 @@ sealed interface UpdateState {
  * file for this device ([assetName] picks it), which the platform then installs.
  */
 abstract class Updater(
-    private val repo: String,
+    /** The GitHub repository ("owner/name") the builds are published in. */
+    val repo: String,
     val currentBuild: Int,
     private val scope: CoroutineScope,
     private val downloadDir: File,

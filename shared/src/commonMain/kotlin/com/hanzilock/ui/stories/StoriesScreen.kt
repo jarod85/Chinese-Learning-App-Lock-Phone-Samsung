@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.hanzilock.AppCore
 import com.hanzilock.platform.LocalAppCore
+import com.hanzilock.platform.LocalPlatformUi
 import com.hanzilock.quiz.SentenceTiles
 import com.hanzilock.stories.StoryLength
 import com.hanzilock.stories.StorySummary
@@ -143,7 +144,7 @@ fun StoriesScreen(nav: Navigator, snackbar: SnackbarHostState) {
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("Delete \"${s.title}\"?") },
-            text = { Text("The story and its translations are removed from your phone.") },
+            text = { Text("The story and its translations are removed from your ${LocalPlatformUi.current.deviceName}.") },
             confirmButton = {
                 TextButton(onClick = {
                     deleting = null

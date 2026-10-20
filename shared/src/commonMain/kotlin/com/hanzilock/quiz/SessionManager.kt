@@ -171,7 +171,7 @@ class SessionManager(
         val s = _active.value
         if (s != null) {
             words.finishSession(s.id, outcome, now)
-            if (s.kind == SessionKind.LOCK || lockEngine.isLockDue(now)) lockEngine.markCompleted(now)
+            if (s.kind == SessionKind.LOCK || lockEngine.isLockDue(now)) lockEngine.markCompleted(now, shared = outcome == "completed")
         }
         save(null)
     }

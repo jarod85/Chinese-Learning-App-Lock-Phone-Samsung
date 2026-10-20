@@ -237,7 +237,7 @@ private fun PronunciationStep(ui: QuizViewModel.Ui, vm: QuizViewModel) {
             MicButton(ui.listening, ui.level, enabled = !ui.busy && ui.speechAvailable, onClick = listen)
             Text(
                 when {
-                    !ui.speechAvailable -> "No speech recognition on this phone."
+                    !ui.speechAvailable -> "No speech recognition on this ${LocalPlatformUi.current.deviceName}."
                     ui.listening && ui.partial.isNotEmpty() -> ui.partial
                     ui.listening -> "Listening…"
                     else -> "Tap the mic, then speak (${ui.speechTriesLeft} ${if (ui.speechTriesLeft == 1) "try" else "tries"} left)"
@@ -473,7 +473,7 @@ private fun BusyButton(label: String, busy: Boolean, enabled: Boolean, onClick: 
 private fun Summary(summary: QuizViewModel.SummaryUi?, onDone: () -> Unit) {
     val s = summary ?: return
     Message(
-        title = if (s.unlocked) "Done - phone unlocked 🎉" else "Practice complete",
+        title = if (s.unlocked) "Done - ${LocalPlatformUi.current.deviceName} unlocked 🎉" else "Practice complete",
         body = buildString {
             append("✓ ${s.wins} right   ✗ ${s.losses} missed")
             if (s.unlocked && s.nextResetAt != null) append("\n\nNext practice at ${formatTime(s.nextResetAt)}.")

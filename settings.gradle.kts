@@ -23,3 +23,4 @@ dependencyResolutionManagement {
 rootProject.name = "LingoLock"
 include(":app")
 include(":shared")
+include(":desktop")

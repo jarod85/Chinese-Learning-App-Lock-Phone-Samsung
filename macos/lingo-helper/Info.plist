@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Embedded into the helper binary (see build.sh): macOS reads the usage descriptions from here. -->
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.hanzilock.mac.helper</string>
+    <key>CFBundleName</key>
+    <string>Lingo Lock</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Lingo Lock listens to you pronounce each word.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Lingo Lock uses speech recognition to check your pronunciation.</string>
+</dict>
+</plist>

@@ -22,6 +22,7 @@ import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.mimeTypes
 import androidx.compose.ui.draganddrop.toAndroidDragEvent
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import com.hanzilock.HanziLockApp
@@ -70,6 +71,9 @@ private class AndroidPlatformUi(private val app: HanziLockApp) : PlatformUi {
     @Composable
     override fun BackHandler(enabled: Boolean, onBack: () -> Unit) =
         androidx.activity.compose.BackHandler(enabled = enabled, onBack = onBack)
+
+    @Composable
+    override fun KeyShortcuts(onKey: (KeyEvent) -> Boolean) = Unit
 
     @Composable
     override fun rememberMicAction(onGranted: () -> Unit): () -> Unit {

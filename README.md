@@ -31,6 +31,11 @@ the English translation, have the story read aloud, and answer comprehension que
 Phone calls, alarms, your calendar, SMS, emergency SOS, notifications and any apps you allow **keep working while
 locked**. Emails from senders or accounts you choose can be opened too.
 
+**On your Mac too.** The same app runs on a Mac with Apple silicon: the same words, sets, stories, dictionary and
+stats, kept in sync with the phone through a private GitHub repository. It has the practice gate as well, off until you
+switch it on. See [Lingo Lock on the Mac](#lingo-lock-on-the-mac) and
+[Sync between your phone and Mac](#sync-between-your-phone-and-mac).
+
 ---
 
 ## Contents
@@ -39,6 +44,8 @@ locked**. Emails from senders or accounts you choose can be opened too.
 - [Languages and word sets](#languages-and-word-sets)
 - [Install on the Galaxy S24 FE](#install-on-the-galaxy-s24-fe)
 - [Updating the app](#updating-the-app)
+- [Lingo Lock on the Mac](#lingo-lock-on-the-mac)
+- [Sync between your phone and Mac](#sync-between-your-phone-and-mac)
 - [First-run setup on the phone](#first-run-setup-on-the-phone)
 - [Settings you control](#settings-you-control)
 - [Adding your own words](#adding-your-own-words)
@@ -142,7 +149,8 @@ screen (or *Settings > App updates > Check for updates*). Tap **Install** and co
 
 **Publishing builds.** Cloud builds are set up: GitHub builds the app on every push to `main`
 ([`.github/workflows/release.yml`](.github/workflows/release.yml)) and publishes it as a release, about
-5-10 minutes after the push. So a change reaches the phone like this: commit, push, then on the phone
+5-10 minutes after the push. The Mac app (`lingo-lock-mac.zip`, built on a macOS machine) is added to the same release
+a few minutes later. So a change reaches the phone like this: commit, push, then on the phone
 *Settings > App updates > Check for updates* and **Install**. No PC is needed, e.g. when you ask Claude Code on
 the web for a change.
 
@@ -172,6 +180,67 @@ Use the addresses your phone shows: `pair` takes the address in the pairing dial
 code, and `connect` takes the *IP address & port* on the Wireless debugging screen (a different port).
 
 Before an update that changes a lot, a backup costs nothing: *Settings > Backup*.
+
+## Lingo Lock on the Mac
+
+The Mac app is the same app with a desktop layout: a sidebar instead of the tabs at the bottom, and keyboard
+shortcuts (⌘1 to ⌘6 for the tabs, Esc to go back, Return to check an answer, ← and → to turn a story's pages;
+right-click a word in a story to look it up). It needs a Mac with Apple silicon (M1 or newer) and macOS 13 or later.
+
+**Install** (once):
+
+1. Download `lingo-lock-mac.zip` from the newest release of this repository (*Releases > Build N > Assets*). Safari
+   unpacks it to *Lingo Lock.app*.
+2. Drag *Lingo Lock.app* into *Applications* and open it.
+3. macOS says it can't check the app for malware, because it isn't signed with an Apple Developer account: click
+   **Done**, open *System Settings > Privacy & Security*, scroll down to *"Lingo Lock" was blocked…* and click
+   **Open Anyway** (and confirm). This is needed only once. If macOS instead says the app is damaged, run
+   `xattr -dr com.apple.quarantine "/Applications/Lingo Lock.app"` in Terminal and open it again.
+4. The setup checklist asks for a **master PIN** (the Mac has its own), the **microphone and speech recognition**
+   (macOS asks once) and a **voice** for the language you practise: *System Settings > Accessibility > Spoken Content >
+   System voice > Manage Voices…* (the *Premium* and *Enhanced* voices sound best).
+
+**Updates** come the same way as on the phone: *Settings > App updates > Check for updates* and **Install**. Lingo Lock
+downloads the new version, replaces itself and restarts. Your data stays in `~/Library/Application Support/Lingo Lock`
+(the Claude key and the sync token are in your keychain). After an update macOS may ask again for the microphone and
+speech recognition.
+
+**The practice gate** is off until you switch it on (*Settings > Practice lock on*, PIN-protected). Then:
+
+- After each reset time, a full-screen practice window covers your screen (another screen gets a plain cover) and stays
+  in front of other apps until you finish the words, or use the master PIN to skip or pause.
+- The apps you allow (*Settings > Allowed apps*; by default Calendar, Clock, FaceTime, Messages, Phone, Zoom, Teams and
+  Webex) can be used: the practice window steps aside while one of them is in front.
+- Lingo Lock then starts when you log in and keeps running in the menu bar when you close its window. Quitting it
+  (⌘Q, or the menu bar icon) asks for the master PIN.
+- Like the phone's, it's a self-discipline tool, not a kiosk: Force Quit still ends it (macOS starts it again), and
+  switching the lock off removes it from the login items.
+
+Phone only: priority emails, and sharing a web page from Chrome (on the Mac, paste the link on the Stories tab).
+
+## Sync between your phone and Mac
+
+Your phone and your Mac keep the same words, sets (which are switched on, and your own), progress, stats, stories,
+languages and schedule. They sync through a private GitHub repository: each device uploads its own data there and
+merges what the others uploaded - at start, shortly after a change, every few minutes, and just before the practice
+gate comes up.
+
+- A practice session finished on one device unlocks the other until its next reset time. Skipping with the PIN doesn't.
+- If both devices changed the same thing, the newer change wins; a word you edited beats an update from a built-in
+  set, and the most recent practice of a word wins. Deleting a set, word or story deletes it on the other device too.
+- The master PIN, the Claude API key, the lock switch, the allowed apps and priority emails stay per device.
+
+**Set it up** (once):
+
+1. On the PC: `.\tools\setup-sync.ps1`. It creates the private repository `<you>/lingo-lock-data` with the GitHub CLI
+   and opens GitHub's page for a token.
+2. Make a fine-grained token: *Repository access > Only select repositories > lingo-lock-data*;
+   *Permissions > Contents: Read and write*. Copy it.
+3. On the phone and on the Mac: *Settings > Sync between your devices*: the repository (`<you>/lingo-lock-data`) and
+   the token, then **Save & sync now**.
+
+The token can only read and write that one repository. It's kept in the app's private storage on the phone and in the
+keychain on the Mac. When it expires, Sync shows an error: make a new one and paste it on both devices.
 
 ## First-run setup on the phone
 
@@ -390,25 +459,31 @@ And some limits of the checks and the data:
 content/sets/                 word sets per language + index.json (bundled as assets; built by tools/sets.py)
 content/corpus/zh-en.tsv      Chinese example sentences (Tatoeba) used when importing Chinese words
 content/dictionary/*.gz       CC-CEDICT (bundled; refresh with tools/update-cedict.ps1)
-app/src/main/java/com/hanzilock/
-  lock/     accessibility service (gate), lock activity, priority-email notification listener
-  core/     settings, languages, schedule/lock engine, allow list, master PIN
+shared/src/commonMain/kotlin/com/hanzilock/   everything the phone and the Mac share
+  core/     settings, languages, schedule/lock engine, master PIN
   quiz/     pinyin, kana, answer/speech matching, sentence tiles, spaced repetition, sessions, Claude grader
   data/     SQLite (words, sets, sessions, attempts), CC-CEDICT, set sync, language packs, import/export,
             filling in new words with Claude
   stories/  stories: word cutting and pages, fetching from the web, Claude's stories, translations and questions
-  speech/   speech recognition + text-to-speech wrappers
-  update/   in-app updates from GitHub releases
-  ui/       Jetpack Compose screens (ui/learn: learning mode, ui/stories: the Stories tab and reader)
-app/src/test/                 JVM unit tests (pinyin, kana, matchers, tiles, schedule, import, bundled sets, stories)
-tools/                        setup-toolchain / build / install / update-cedict / publish / setup-cloud-builds
-                              (PowerShell), sets.py
-.github/workflows/release.yml cloud build + GitHub release on every push to main
+  sync/     syncing your devices through a private GitHub repository
+  platform/ what each device provides (database, settings, bundled content, files, parts of the UI)
+  speech/, update/   speech and in-app update interfaces (each device implements them)
+  ui/       Compose screens (ui/learn: learning mode, ui/stories: the Stories tab and reader)
+shared/src/commonTest/        JVM unit tests (pinyin, kana, matchers, tiles, schedule, import, bundled sets, stories)
+app/src/main/java/com/hanzilock/   the phone app
+  lock/     accessibility service (gate), lock activity, priority-email notification listener
+  platform/, speech/, update/   Android's database, settings, speech recognition, text-to-speech, APK installer
+desktop/src/main/kotlin/com/hanzilock/desktop/   the Mac app: window and keyboard, practice gate, menu bar, login item,
+                              SQLite through JDBC, keychain, the Mac updater (tests: syncing two devices)
+macos/lingo-helper/           Swift helper for the Mac: Apple's voices, speech recognition, installed apps, app in front
+tools/                        setup-toolchain / build / install / update-cedict / publish / setup-cloud-builds /
+                              setup-sync (PowerShell), sets.py
+.github/workflows/release.yml cloud build + GitHub release on every push to main (phone, then Mac)
 update-phone.cmd, add-words.cmd   double-click helpers for the two everyday jobs
 ```
 
-Kotlin, Jetpack Compose (Material 3), plain SQLite, minSdk 31 / targetSdk 35. No Google Play services are
-needed. The code and application id still use the working name `hanzilock` (`com.hanzilock`); changing the
+Kotlin, Compose Multiplatform (Jetpack Compose and Material 3 on the phone), plain SQLite, minSdk 31 / targetSdk 35. No
+Google Play services are needed. The code and application id still use the working name `hanzilock` (`com.hanzilock`); changing the
 application id would make Android treat it as a different app, so updates couldn't keep your progress.
 
 ```powershell
@@ -416,8 +491,15 @@ application id would make Android treat it as a different app, so updates couldn
 ```
 
 ```powershell
-. .\tools\env.ps1; .\gradlew.bat :app:testDebugUnitTest :app:lintDebug
+. .\tools\env.ps1; .\gradlew.bat :shared:testDebugUnitTest :shared:desktopTest :desktop:test :app:lintDebug
 ```
+
+```powershell
+. .\tools\env.ps1; .\gradlew.bat :desktop:run    # the Mac app on the PC, for development (no voices or speech recognition)
+```
+
+The Mac app itself (`:desktop:createDistributable`, with the helper from `macos/lingo-helper/build.sh`) can only be
+built on a Mac; the release workflow does that.
 
 You can also open the folder in Android Studio. It uses the same Gradle wrapper and `local.properties`.
 
@@ -434,3 +516,5 @@ You can also open the folder in Android Studio. It uses the same Gradle wrapper 
   reading; they aren't part of this repository.
 - Mic, speaker, pause and book icons: Material Icons (Apache 2.0).
 - Optional grading: the [Anthropic Java SDK](https://github.com/anthropics/anthropic-sdk-java).
+- The Mac app: [Compose Multiplatform](https://github.com/JetBrains/compose-multiplatform) (Apache 2.0) and
+  [sqlite-jdbc](https://github.com/xerial/sqlite-jdbc) (Apache 2.0).
