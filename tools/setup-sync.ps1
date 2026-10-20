@@ -11,8 +11,12 @@ if (-not (Test-Path $gh)) { throw 'GitHub CLI not found. Install it (winget inst
 
 $owner = (& $gh api user --jq .login).Trim()
 $repo = "$owner/$Name"
-& $gh repo view $repo --json name 2>$null | Out-Null
-if ($LASTEXITCODE -eq 0) {
+# "Not found" arrives on stderr, which Windows PowerShell would treat as a fatal error here.
+$ErrorActionPreference = 'Continue'
+& $gh repo view $repo --json name *> $null
+$exists = $LASTEXITCODE -eq 0
+$ErrorActionPreference = 'Stop'
+if ($exists) {
     Write-Host "$repo already exists."
 } else {
     & $gh repo create $repo --private --add-readme --description 'Lingo Lock: words, progress and stories synced between my devices'
