@@ -118,6 +118,7 @@ jobs:
       - name: Sign ad hoc and zip
         run: |
           app="desktop/build/compose/binaries/main/app/Lingo Lock.app"
+          chmod +x "$app/Contents/app/resources/lingo-helper"   # packaging drops its executable bit
           codesign --force --deep --sign - "$app"
           codesign --verify --deep --strict "$app"
           ditto -c -k --keepParent "$app" lingo-lock-mac.zip
