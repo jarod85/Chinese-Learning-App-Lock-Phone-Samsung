@@ -1,0 +1,43 @@
+# Builds the Mac app without publishing it, for trying changes on a branch named mac/... (or from the
+# Actions tab). The zip is attached to the run as an artifact. Releases come from release.yml on main.
+name: Mac build
+
+on:
+  push:
+    branches: ["mac/**"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the build number is the commit count
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - name: Build the speech helper
+        run: sh macos/lingo-helper/build.sh
+
+      - name: Build the Mac app (unit tests + Lingo Lock.app)
+        run: |
+          chmod +x gradlew
+          ./gradlew :shared:desktopTest :desktop:test :desktop:createDistributable --console=plain
+
+      - name: Sign ad hoc and zip
+        run: |
+          app="desktop/build/compose/binaries/main/app/Lingo Lock.app"
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          ditto -c -k --keepParent "$app" lingo-lock-mac.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lingo-lock-mac
+          path: lingo-lock-mac.zip
