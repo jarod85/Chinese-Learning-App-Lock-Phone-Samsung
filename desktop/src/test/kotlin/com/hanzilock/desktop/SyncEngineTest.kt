@@ -5,24 +5,14 @@ import com.hanzilock.data.AppDatabase
 import com.hanzilock.data.SetFile
 import com.hanzilock.data.SetInfo
 import com.hanzilock.data.SetWord
-import com.hanzilock.data.SqlDb
-import com.hanzilock.data.SqlSchema
 import com.hanzilock.data.WordDraft
 import com.hanzilock.data.WordScope
 import com.hanzilock.data.mapRows
 import com.hanzilock.data.str
-import com.hanzilock.platform.Assets
-import com.hanzilock.platform.Platform
-import com.hanzilock.platform.Prefs
-import com.hanzilock.speech.Speaker
-import com.hanzilock.speech.SpeechInput
 import com.hanzilock.stories.StoryBody
 import com.hanzilock.stories.StoryDraft
 import com.hanzilock.sync.SyncEngine
 import com.hanzilock.sync.SyncWord
-import com.hanzilock.update.Release
-import com.hanzilock.update.Updater
-import kotlinx.coroutines.CoroutineScope
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -31,32 +21,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import java.io.File
-import java.io.InputStream
 
 /** Two devices (each its own SQLite files and settings) syncing through snapshots, as SyncManager does. */
 class SyncEngineTest {
     @get:Rule
     val tmp = TemporaryFolder()
-
-    private class TestPlatform(private val dir: File) : Platform {
-        override val prefs: Prefs = JsonPrefs(File(dir, "settings.json"), secrets = null, secretKeys = emptySet())
-        override val assets: Assets = object : Assets {
-            override fun open(path: String): InputStream = error("no assets in tests")
-            override fun list(dir: String): List<String> = emptyList()
-        }
-        override val buildNumber = 1
-        override val versionName = "test"
-        override val deviceName = "Test"
-        override fun openDatabase(schema: SqlSchema): SqlDb = JdbcSqlDb.open(dir, schema)
-        override fun createSpeaker(): Speaker = NoSpeaker()
-        override fun createSpeechInput(): SpeechInput = NoSpeechInput()
-        override fun createUpdater(scope: CoroutineScope): Updater = object : Updater("", 1, scope, dir, { false }) {
-            override val installingMessage = ""
-            override fun installDownloaded(file: File, release: Release) = Unit
-        }
-        override fun isOnline() = false
-    }
 
     private fun device(name: String) = AppCore(TestPlatform(tmp.newFolder(name)))
 

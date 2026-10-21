@@ -53,6 +53,7 @@ fun LingoLockContent(app: HanziLockApp, content: @Composable () -> Unit) {
 private class AndroidPlatformUi(private val app: HanziLockApp) : PlatformUi {
     override val deviceName = "phone"
     override val hasPriorityEmail = true
+    override val hasMouse = false
 
     override fun setupProblems(): List<String> = buildList {
         if (!app.pin.isSet) add("Set a master PIN")

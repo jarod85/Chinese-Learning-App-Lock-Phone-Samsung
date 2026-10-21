@@ -25,8 +25,9 @@ learning (no English), shows how it's used with example sentences, then corrects
 yourself, without grading them.
 
 A **Stories** tab gives you Chinese stories to read: written by Claude at your HSK level, graded stories from
-Mandarin Bean, or any web page or text. Press and hold a word for its pinyin and meaning, tap the top of the page for
-the English translation, have the story read aloud, and answer comprehension questions in Chinese at the end.
+Mandarin Bean, or any web page or text. Point at a word (or tap it) for its pinyin and meaning, click it to see what
+its sentence means in English, search the dictionary without leaving the story, have the story read aloud, and answer
+comprehension questions in Chinese at the end.
 
 Phone calls, alarms, your calendar, SMS, emergency SOS, notifications and any apps you allow **keep working while
 locked**. Emails from senders or accounts you choose can be opened too.
@@ -184,8 +185,9 @@ Before an update that changes a lot, a backup costs nothing: *Settings > Backup*
 ## Lingo Lock on the Mac
 
 The Mac app is the same app with a desktop layout: a sidebar instead of the tabs at the bottom, and keyboard
-shortcuts (⌘1 to ⌘6 for the tabs, Esc to go back, Return to check an answer, ← and → to turn a story's pages;
-right-click a word in a story to look it up). It needs a Mac with Apple silicon (M1 or newer) and macOS 13 or later.
+shortcuts (⌘1 to ⌘6 for the tabs, Esc to go back, Return to check an answer, ← and → to turn a story's pages, ⌘F to
+search while reading). In a story, point at a word for its pinyin and meaning, click it for its sentence's translation,
+and right-click it for its dictionary card. It needs a Mac with Apple silicon (M1 or newer) and macOS 13 or later.
 
 ### Setting up the Mac, step by step
 
@@ -457,11 +459,19 @@ The **Stories** tab is for reading practice in Chinese (simplified characters). 
 Reading a story:
 
 - The text comes in **pages**: swipe or use the arrows at the bottom. The story opens where you left off.
-- **Press and hold a word** to see its pinyin and meaning from CC-CEDICT (character by character if it isn't in the
-  dictionary), hear it, or add it to your words. Words are found offline with the dictionary, so this works without
-  a connection.
-- **Tap the panel at the top** to show the **English translation** of the page; tap again to hide it. Translations
-  of stories from the web come from Claude the first time you show them, then they're saved.
+- **Point at a word** with the mouse (on the Mac): it turns red, its pinyin shows above it, and its meaning from
+  CC-CEDICT appears under *Word meaning* at the top (character by character if it isn't in the dictionary), with
+  buttons to hear it or add it to your words. On the phone, tap the word.
+- **Click (or tap) a word** to see how it's used: its sentence is highlighted and *Sentence meaning* at the top shows
+  the sentence in English. Click it again to let go. **Whole page** shows the translation of the whole page instead
+  (**One sentence** goes back). Translations of stories from the web come from Claude the first time you need them
+  (a page and the next one at a time), then they're saved.
+- **Press and hold a word** (right-click on the Mac) for its dictionary card with every reading.
+- **Search** (the magnifier at the top, or ⌘F on the Mac) looks words up in the dictionary by characters, pinyin
+  (`xuexi` or `xue2xi2`) or English while you read. Words that are in the story come first with the pages they're on;
+  click one to go there. A word you search for is marked wherever it is in the story. On the Mac the search opens
+  beside the story; Esc closes it.
+- Word lookup and search use the dictionary on the device, so they work without a connection.
 - The **speaker button** (top right) **reads the story aloud** from the page you're on, highlighting each sentence
   and turning the pages; tap it again to pause. **Normal / Slow** sets the speed. It uses the phone's Chinese
   text-to-speech voice (see the setup checklist).

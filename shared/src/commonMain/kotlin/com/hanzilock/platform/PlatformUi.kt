@@ -20,6 +20,9 @@ interface PlatformUi {
     /** Priority emails (opening chosen email notifications while locked) exist on the phone only. */
     val hasPriorityEmail: Boolean
 
+    /** Used with a mouse (pointing at a word looks it up) rather than a touch screen. */
+    val hasMouse: Boolean
+
     /** Required setup steps that are still missing, in the order to do them. */
     fun setupProblems(): List<String>
 

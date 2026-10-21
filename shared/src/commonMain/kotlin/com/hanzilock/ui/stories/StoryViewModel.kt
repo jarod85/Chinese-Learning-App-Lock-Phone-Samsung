@@ -14,6 +14,7 @@ import com.hanzilock.stories.storyQuestions
 import com.hanzilock.stories.translateSentences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -21,9 +22,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Reading one story: its pages, looking up a word, the English translation of a page (Claude,
- * fetched the first time it is shown), reading aloud sentence by sentence, and the comprehension
- * questions and explanation at the end, which Claude gives feedback on.
+ * Reading one story: its pages, looking up a word (pointing at it, clicking it for its sentence's
+ * translation, or pressing and holding it), searching the dictionary, the English translation of a
+ * page (Claude, fetched the first time it is shown), reading aloud sentence by sentence, and the
+ * comprehension questions and explanation at the end, which Claude gives feedback on.
  */
 class StoryViewModel(private val app: AppCore) : ViewModel() {
     /** A word you can look up: where it is in its [Block]'s text. */
@@ -33,6 +35,17 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
     data class Block(val text: String, val words: List<WordSpan>, val sentences: List<Pair<Int, IntRange>>)
 
     data class Page(val sentences: IntRange, val blocks: List<Block>)
+
+    /** A word on a page: the block it's in and where. */
+    data class WordRef(val page: Int, val block: Int, val span: WordSpan)
+
+    /** What the dictionary says about a word; character by character when it isn't one word. */
+    data class Meaning(val entries: List<DictEntry>, val characters: List<DictEntry>) {
+        val pinyin: String get() = entries.firstOrNull()?.pinyinMarked ?: characters.joinToString(" ") { it.pinyinMarked }
+    }
+
+    /** A dictionary entry found by the search, and the pages of the story it's on. */
+    data class SearchHit(val entry: DictEntry, val pages: List<Int>)
 
     /** The word you pressed and what the dictionary says about it. */
     data class Lookup(
@@ -58,6 +71,22 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
         val translating: Boolean = false,
         val translateError: String? = null,
         val lookup: Lookup? = null,
+        /** The word under the mouse pointer. */
+        val hovered: WordRef? = null,
+        /** The word whose meaning is shown at the top: the last one you pointed at or clicked. */
+        val shown: WordRef? = null,
+        /** The word you clicked (or tapped), and the sentence it's in (-1 for none). */
+        val selected: WordRef? = null,
+        val selectedSentence: Int = -1,
+        /** Words looked up so far. */
+        val meanings: Map<String, Meaning> = emptyMap(),
+        /** The search panel: what you typed, what the dictionary found, and the word marked in the story. */
+        val searching: Boolean = false,
+        val searchQuery: String = "",
+        val searchResults: List<SearchHit> = emptyList(),
+        val marked: String? = null,
+        /** Pages [marked] is on. */
+        val markedPages: List<Int> = emptyList(),
         val reading: Boolean = false,
         /** Sentence being read aloud (or where reading stopped), -1 for none. */
         val readingSentence: Int = -1,
@@ -87,6 +116,7 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
     val ui: StateFlow<Ui> = _ui
     private var storyId: Long? = null
     private var lookupJob: Job? = null
+    private var searchJob: Job? = null
     private val speech = app.newSpeechInput()
     private val zh get() = app.languages.get("zh").javaLocale
 
@@ -167,6 +197,8 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
     fun onPage(page: Int) {
         val story = _ui.value.story ?: return
         if (_ui.value.lookup?.page != page) dismissLookup()
+        if (_ui.value.selected.let { it != null && it.page != page }) clearSelection()
+        if (_ui.value.shown.let { it != null && it.page != page }) _ui.update { it.copy(hovered = null, shown = null) }
         if (page == story.page) return
         _ui.update { it.copy(story = story.copy(page = page)) }
         viewModelScope.launch(Dispatchers.IO) { app.stories.savePage(story.id, page) }
@@ -179,14 +211,8 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
         lookupJob?.cancel()
         _ui.update { it.copy(lookup = Lookup(page, block, span, atTop)) }
         lookupJob = viewModelScope.launch {
-            val (entries, characters) = withContext(Dispatchers.IO) {
-                val entries = app.dictionary.lookup(span.word)
-                val characters = if (entries.isEmpty() && span.word.length > 1) {
-                    span.word.map { app.dictionary.lookup(it.toString()).firstOrNull() }.filterNotNull()
-                } else emptyList()
-                entries.take(4) to characters
-            }
-            _ui.update { u -> if (u.lookup?.span == span) u.copy(lookup = u.lookup.copy(loading = false, entries = entries, characters = characters)) else u }
+            val m = withContext(Dispatchers.IO) { meaningOf(span.word) }
+            _ui.update { u -> if (u.lookup?.span == span) u.copy(lookup = u.lookup.copy(loading = false, entries = m.entries, characters = m.characters)) else u }
         }
     }
 
@@ -194,6 +220,86 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
         lookupJob?.cancel()
         if (_ui.value.lookup != null) _ui.update { it.copy(lookup = null) }
     }
+
+    /** The mouse pointer is on [word] of [block] (-1: on no word of it). */
+    fun hover(page: Int, block: Int, word: Int) {
+        val ref = wordRef(page, block, word)
+        val current = _ui.value.hovered
+        if (ref == current) return
+        // Leaving a paragraph only ends hovering if the pointer hasn't reached a word of the next one yet.
+        if (ref == null && (current == null || current.page != page || current.block != block)) return
+        _ui.update { it.copy(hovered = ref, shown = ref ?: it.shown) }
+        ref?.let { loadMeaning(it.span.word) }
+    }
+
+    /** Clicking a word shows what its sentence means (translated by Claude if it isn't yet); clicking it again lets go. */
+    fun select(page: Int, block: Int, word: Int) {
+        val ref = wordRef(page, block, word)
+        if (ref == null || ref == _ui.value.selected) return clearSelection()
+        val sentence = _ui.value.pages[page].blocks[block].sentences.firstOrNull { ref.span.start in it.second }?.first ?: -1
+        dismissLookup()
+        _ui.update { it.copy(selected = ref, selectedSentence = sentence, shown = ref) }
+        loadMeaning(ref.span.word)
+        if (sentence >= 0 && _ui.value.story?.body?.chunks?.getOrNull(sentence)?.en.isNullOrBlank()) ensureTranslated(page)
+    }
+
+    fun clearSelection() {
+        if (_ui.value.selected != null) _ui.update { it.copy(selected = null, selectedSentence = -1) }
+    }
+
+    private fun wordRef(page: Int, block: Int, word: Int): WordRef? =
+        _ui.value.pages.getOrNull(page)?.blocks?.getOrNull(block)?.words?.getOrNull(word)?.let { WordRef(page, block, it) }
+
+    private fun loadMeaning(word: String) {
+        if (word in _ui.value.meanings) return
+        viewModelScope.launch {
+            val m = withContext(Dispatchers.IO) { meaningOf(word) }
+            // Until the dictionary is ready, nothing is found: look again next time.
+            if (app.dictionary.isReady) _ui.update { it.copy(meanings = it.meanings + (word to m)) }
+        }
+    }
+
+    private fun meaningOf(word: String): Meaning {
+        val entries = app.dictionary.lookup(word)
+        val characters = if (entries.isEmpty() && word.length > 1) word.mapNotNull { app.dictionary.lookup(it.toString()).firstOrNull() } else emptyList()
+        return Meaning(entries.take(4), characters)
+    }
+
+    // ---- search ----------------------------------------------------------------------------------
+
+    fun openSearch() = _ui.update { it.copy(searching = true) }
+
+    /** Puts the search away but keeps what you typed and the word marked in the story. */
+    fun hideSearch() = _ui.update { it.copy(searching = false) }
+
+    fun closeSearch() {
+        searchJob?.cancel()
+        _ui.update { it.copy(searching = false, marked = null, markedPages = emptyList()) }
+    }
+
+    /**
+     * Searches the dictionary as you type (characters, pinyin or English); words that are in the story
+     * come first. Chinese you type is marked in the story too.
+     */
+    fun search(query: String) {
+        _ui.update { it.copy(searchQuery = query) }
+        mark(query.trim().takeIf { StoryText.hasHan(it) })
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(200)
+            val pages = _ui.value.pages
+            val hits = withContext(Dispatchers.IO) {
+                app.dictionary.search(query).map { SearchHit(it, pagesWith(pages, it.simplified)) }.sortedByDescending { it.pages.isNotEmpty() }
+            }
+            _ui.update { it.copy(searchResults = hits) }
+        }
+    }
+
+    /** Marks [term] wherever it is in the story (null: nothing). */
+    fun mark(term: String?) = _ui.update { it.copy(marked = term, markedPages = term?.let { t -> pagesWith(it.pages, t) }.orEmpty()) }
+
+    private fun pagesWith(pages: List<Page>, term: String): List<Int> =
+        pages.indices.filter { p -> pages[p].blocks.any { term in it.text } }
 
     fun speakWord(word: String) = app.speaker.speak(word, zh, slow = true)
 

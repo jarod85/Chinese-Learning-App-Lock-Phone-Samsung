@@ -187,8 +187,17 @@ private fun Hint(text: String) {
 }
 
 @Composable
-private fun DictRow(entry: DictEntry, inList: Boolean, onAdd: () -> Unit, onSpeak: () -> Unit) {
+internal fun DictRow(
+    entry: DictEntry,
+    inList: Boolean,
+    onAdd: () -> Unit,
+    onSpeak: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** A line under the meaning, e.g. where the word is in a story. */
+    note: String? = null,
+) {
     ListItem(
+        modifier = modifier,
         headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(entry.simplified, style = hanziStyle(22))
@@ -201,7 +210,10 @@ private fun DictRow(entry: DictEntry, inList: Boolean, onAdd: () -> Unit, onSpea
             }
         },
         supportingContent = {
-            Text(entry.definitions.joinToString("; "), maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Column {
+                Text(entry.definitions.joinToString("; "), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                note?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary) }
+            }
         },
         trailingContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {

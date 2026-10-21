@@ -61,6 +61,7 @@ class DesktopPlatformUi(
 ) : PlatformUi {
     override val deviceName = if (DesktopPaths.isMac) "Mac" else "computer"
     override val hasPriorityEmail = false
+    override val hasMouse = true
 
     override fun setupProblems(): List<String> = buildList {
         if (!core.pin.isSet) add("Set a master PIN")
