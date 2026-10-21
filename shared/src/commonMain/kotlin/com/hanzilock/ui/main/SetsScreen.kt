@@ -47,6 +47,8 @@ import com.hanzilock.data.WordSet
 import com.hanzilock.platform.LocalAppCore
 import com.hanzilock.platform.LocalPlatformUi
 import com.hanzilock.platform.PickedFile
+import com.hanzilock.sync.SyncManager.State
+import com.hanzilock.ui.common.formatDateTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -96,6 +98,7 @@ fun SetsScreen(nav: Navigator, snackbar: SnackbarHostState) {
                     installing?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 16.dp))
                     }
+                    SetsSyncRow()
                 }
                 items(sets, key = { it.id }) { set ->
                     SetRow(
@@ -173,6 +176,31 @@ fun SetsScreen(nav: Navigator, snackbar: SnackbarHostState) {
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
         )
+    }
+}
+
+/** Whether the sets you make here reach your other devices, and a way to fetch theirs right away. */
+@Composable
+private fun SetsSyncRow() {
+    val app = LocalAppCore.current
+    val scope = rememberCoroutineScope()
+    val state by app.sync.state.collectAsStateWithLifecycle()
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            when (val st = state) {
+                State.Off -> "Sync is off, so sets you make stay on this device. Turn it on in Settings > Sync between your devices."
+                State.Syncing -> "Syncing with your other devices…"
+                is State.Done ->
+                    "Your own sets sync with your other devices" + if (st.at == 0L) "." else " · last ${formatDateTime(st.at)}"
+                is State.Failed -> "Sync failed: ${st.message}"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = if (state is State.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f).padding(vertical = 4.dp),
+        )
+        if (state != State.Off) {
+            TextButton(enabled = state != State.Syncing, onClick = { scope.launch { app.sync.syncNow() } }) { Text("Sync now") }
+        }
     }
 }
 

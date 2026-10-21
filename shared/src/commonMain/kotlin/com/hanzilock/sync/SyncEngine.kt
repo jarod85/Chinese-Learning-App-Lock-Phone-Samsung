@@ -183,7 +183,8 @@ class SyncEngine(private val core: AppCore) {
         if (alt != local.altMeanings) cv.put("alt_meanings", json(alt))
         if (w.lastSeenAt > local.lastSeenAt) cv.putProgress(w)
         if (cv.isEmpty()) return false
-        cv.put("touched", 1)
+        // A bundled word as it comes with the app needn't go out from here too (every device has its sets).
+        if (w.userEdited || !w.enabled || alt.isNotEmpty() || w.source !in BUNDLED_SOURCES || w.lastSeenAt > 0) cv.put("touched", 1)
         db.update("words", cv, "id=?", arrayOf(local.id.toString()))
         return true
     }
@@ -372,5 +373,6 @@ class SyncEngine(private val core: AppCore) {
 
     private companion object {
         const val DELETED_STORY = StoryRepository.DELETED_STORY
+        val BUNDLED_SOURCES = setOf("set", "registry")
     }
 }

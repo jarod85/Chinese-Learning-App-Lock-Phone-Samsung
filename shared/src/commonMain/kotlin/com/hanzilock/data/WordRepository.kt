@@ -348,7 +348,8 @@ class WordRepository(internal val db: SqlDb) {
                     if (!current.userEdited) update("words", mergedContent(current, w), "id=?", arrayOf(current.id.toString()))
                     current.id
                 }
-                addMembership(this, setId, id)
+                // Words of bundled sets and language packs come with every device, so they aren't synced for this.
+                addMembership(this, setId, id, custom = info.custom)
                 members.add(id)
                 touched++
             }

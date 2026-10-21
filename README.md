@@ -267,6 +267,10 @@ languages and schedule. They sync through a private GitHub repository: each devi
 merges what the others uploaded - at start, shortly after a change, every few minutes, and just before the practice
 gate comes up.
 
+- Sets you make on one device (imported lists, set files, *Combine*, words you add) appear on the other with their
+  words, and renaming them or adding words there comes back. The *Sets* screen says whether sync is on; **Sync now**
+  there fetches what the other device sent without waiting for the next sync (a device sends a change about half a
+  minute after you make it).
 - A practice session finished on one device unlocks the other until its next reset time. Skipping with the PIN doesn't.
 - If both devices changed the same thing, the newer change wins; a word you edited beats an update from a built-in
   set, and the most recent practice of a word wins. Deleting a set, word or story deletes it on the other device too.
@@ -275,7 +279,9 @@ gate comes up.
 **Set it up** (once):
 
 1. On the PC: `.\tools\setup-sync.ps1`. It creates the private repository `<you>/lingo-lock-data` with the GitHub CLI
-   and opens GitHub's page for a token.
+   and opens GitHub's page for a token. Without the PC: on github.com, *+ > New repository*, name `lingo-lock-data`,
+   *Private*, tick *Add a README file*, **Create repository**; then open *Settings > Developer settings > Personal access
+   tokens > Fine-grained tokens > Generate new token*.
 2. Make a fine-grained token: *Repository access > Only select repositories > lingo-lock-data*;
    *Permissions > Contents: Read and write*. Copy it.
 3. On the phone and on the Mac: *Settings > Sync between your devices*: the repository (`<you>/lingo-lock-data`) and

@@ -2,12 +2,12 @@ package com.hanzilock.data
 
 /**
  * Words (per language) and the sets they belong to, practice sessions and every graded attempt.
- * Version 2 added languages and word sets, version 3 what syncing between your devices needs; older
- * installs are migrated in place.
+ * Version 2 added languages and word sets, version 3 what syncing between your devices needs, version 4
+ * stopped syncing untouched words of bundled sets; older installs are migrated in place.
  */
 object AppDatabase : SqlSchema {
     override val fileName = "hanzilock.db"
-    override val version = 3
+    override val version = 4
     override val writeAheadLogging = true
 
     override fun onCreate(db: SqlDb) {
@@ -120,6 +120,7 @@ object AppDatabase : SqlSchema {
     override fun onUpgrade(db: SqlDb, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) migrateToV2(db)
         if (oldVersion < 3) migrateToV3(db)
+        if (oldVersion < 4) migrateToV4(db)
     }
 
     /** v1 had Chinese-only words keyed by hanzi and no sets. */
@@ -176,5 +177,16 @@ object AppDatabase : SqlSchema {
                 "OR id IN (SELECT sw.word_id FROM set_words sw JOIN sets s ON s.id=sw.set_id WHERE s.custom=1)",
         )
         db.execSQL("CREATE TABLE IF NOT EXISTS deletions (kind TEXT NOT NULL, key TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (kind, key))")
+    }
+
+    /**
+     * v4: installing a bundled set (or a language pack) marked all its words as worth syncing, so every
+     * device uploaded tens of thousands of words it didn't need to. Back to what v3 meant to sync.
+     */
+    private fun migrateToV4(db: SqlDb) {
+        db.execSQL(
+            "UPDATE words SET touched=0 WHERE touched=1 AND user_edited=0 AND enabled=1 AND alt_meanings='[]' AND source IN ('set', 'registry') " +
+                "AND id NOT IN (SELECT sw.word_id FROM set_words sw JOIN sets s ON s.id=sw.set_id WHERE s.custom=1)",
+        )
     }
 }

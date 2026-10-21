@@ -1,6 +1,7 @@
 package com.hanzilock.desktop
 
 import com.hanzilock.AppCore
+import com.hanzilock.data.AppDatabase
 import com.hanzilock.data.SetFile
 import com.hanzilock.data.SetInfo
 import com.hanzilock.data.SetWord
@@ -8,6 +9,8 @@ import com.hanzilock.data.SqlDb
 import com.hanzilock.data.SqlSchema
 import com.hanzilock.data.WordDraft
 import com.hanzilock.data.WordScope
+import com.hanzilock.data.mapRows
+import com.hanzilock.data.str
 import com.hanzilock.platform.Assets
 import com.hanzilock.platform.Platform
 import com.hanzilock.platform.Prefs
@@ -16,6 +19,7 @@ import com.hanzilock.speech.SpeechInput
 import com.hanzilock.stories.StoryBody
 import com.hanzilock.stories.StoryDraft
 import com.hanzilock.sync.SyncEngine
+import com.hanzilock.sync.SyncWord
 import com.hanzilock.update.Release
 import com.hanzilock.update.Updater
 import kotlinx.coroutines.CoroutineScope
@@ -113,6 +117,93 @@ class SyncEngineTest {
             assertEquals(10_000L, w.lastSeenAt)
             assertEquals(1, w.losses)
         }
+    }
+
+    private fun AppCore.installHsk1() = words.applySet(
+        SetInfo("zh.hsk1", "zh", "HSK 1", "Beginner", 1, rev = "1", enabled = true),
+        SetFile("zh.hsk1", "zh", "HSK 1", "1", listOf(SetWord("你", reading = "nǐ", meanings = listOf("you")), SetWord("好", reading = "hǎo", meanings = listOf("good")))),
+        bundled = true,
+    )
+
+    private fun AppCore.setTerms(key: String): List<String> =
+        words.list("zh", scope = WordScope.InSet(words.setByKey(key)!!.id)).map { it.term }.sorted()
+
+    @Test
+    fun setsYouMakeOnThePhoneReachTheMacAndComeBack() {
+        val phone = device("phone")
+        val mac = device("mac")
+        phone.installHsk1()
+        mac.installHsk1()
+        // A bundled set's words come with every device, so there's nothing of them to send.
+        assertTrue(SyncEngine(mac).export("mac", "Mac").words.isEmpty())
+
+        // An imported list (a new word, and one HSK 1 already has)...
+        val travel = phone.words.createSet("zh", "Travel")
+        phone.words.insert(WordDraft("zh", "机场", null, "jīchǎng", listOf("airport"), emptyList()), "import", travel)
+        phone.words.addToSet(travel, phone.words.find("zh", "你")!!.id)
+        // ...a set file...
+        phone.words.applySet(
+            SetInfo("custom.zh.1.food", "zh", "Food", "Custom", 100, enabled = true, custom = true),
+            SetFile("custom.zh.1.food", "zh", "Food", null, listOf(SetWord("米饭", reading = "mǐfàn", meanings = listOf("rice")))),
+            bundled = false,
+        )
+        // ...and both combined with HSK 1.
+        val combined = phone.words.combineSets("zh", "Everything", listOf(phone.words.setByKey("zh.hsk1")!!.id, travel), switchOffOriginals = true)
+        val travelKey = phone.words.set(travel)!!.key
+        val combinedKey = phone.words.set(combined)!!.key
+
+        assertTrue(sync(phone, mac))
+        assertEquals("Travel", mac.words.setByKey(travelKey)!!.name)
+        assertEquals(listOf("你", "机场"), mac.setTerms(travelKey))
+        assertEquals(listOf("米饭"), mac.setTerms("custom.zh.1.food"))
+        assertEquals(listOf("你", "好", "机场"), mac.setTerms(combinedKey))
+        assertTrue(mac.words.setByKey(combinedKey)!!.enabled)
+        assertFalse(mac.words.setByKey(travelKey)!!.enabled)
+        assertFalse(mac.words.setByKey("zh.hsk1")!!.enabled)
+        assertEquals(listOf("airport"), mac.words.find("zh", "机场")!!.meanings)
+
+        // Changes on the Mac go back to the phone.
+        Thread.sleep(5)
+        mac.words.renameSet(mac.words.setByKey("custom.zh.1.food")!!.id, "Food & drink")
+        mac.words.insert(WordDraft("zh", "护照", null, "hùzhào", listOf("passport"), emptyList()), "user", mac.words.setByKey(travelKey)!!.id)
+        assertTrue(sync(mac, phone))
+        assertEquals("Food & drink", phone.words.setByKey("custom.zh.1.food")!!.name)
+        assertEquals(listOf("你", "护照", "机场"), phone.setTerms(travelKey))
+
+        assertFalse(sync(phone, mac))
+        assertFalse(sync(mac, phone))
+    }
+
+    @Test
+    fun bundledWordsFromAnOlderVersionArentSentOnAgain() {
+        val phone = device("phone")
+        val mac = device("mac")
+        phone.installHsk1()
+        mac.installHsk1()
+        // An older version sends every word of its bundled sets, with newer timestamps than the Mac's.
+        val later = System.currentTimeMillis() + 1_000
+        val old = SyncEngine(phone).export("phone", "Phone").copy(
+            words = phone.words.list("zh").map { SyncWord("zh", it.term, reading = it.reading, meanings = it.meanings, source = "set", updatedAt = later) },
+        )
+        assertTrue(SyncEngine(mac).merge(old))
+        assertTrue(SyncEngine(mac).export("mac", "Mac").words.isEmpty())
+    }
+
+    @Test
+    fun upgradingStopsSyncingUntouchedBundledWords() {
+        val dir = tmp.newFolder("upgrade")
+        val before = JdbcSqlDb.open(dir, AppDatabase)
+        fun addWord(term: String, source: String, userEdited: Int = 0) = before.execSQL(
+            "INSERT INTO words (lang, term, source, user_edited, touched, created_at, updated_at) VALUES ('zh', ?, ?, ?, 1, 1, 1)",
+            arrayOf<Any?>(term, source, userEdited),
+        )
+        addWord("你", "set")
+        addWord("好", "set", userEdited = 1)
+        addWord("机场", "import")
+        before.execSQL("PRAGMA user_version = 3")
+
+        val after = JdbcSqlDb.open(dir, AppDatabase)
+        assertEquals(listOf("好", "机场"), after.rawQuery("SELECT term FROM words WHERE touched=1 ORDER BY term", null).mapRows { it.str("term") })
     }
 
     @Test
