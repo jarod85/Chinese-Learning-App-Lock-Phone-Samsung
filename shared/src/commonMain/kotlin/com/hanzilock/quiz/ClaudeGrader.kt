@@ -252,29 +252,10 @@ class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
             .system(system)
             .outputConfig(output.build())
             .addUserMessage(user)
-        if (supportsServerFallback(model)) {
-            params.putAdditionalHeader("anthropic-beta", "server-side-fallback-2026-07-01")
-            params.putAdditionalBodyProperty("fallbacks", JsonValue.from("default"))
-        }
-        val response = try {
+        withFallback(params)
+        val response = call {
             if (timeout == null) client.messages().create(params.build())
             else client.messages().create(params.build(), RequestOptions.builder().timeout(timeout).build())
-        } catch (e: UnauthorizedException) {
-            throw GraderException("Claude rejected the API key. Check it in Settings.", e)
-        } catch (e: PermissionDeniedException) {
-            throw GraderException("This API key isn't allowed to use $model.", e)
-        } catch (e: NotFoundException) {
-            throw GraderException("Model \"$model\" was not found. Check the model name in Settings.", e)
-        } catch (e: RateLimitException) {
-            throw GraderException("Claude is rate limiting this key. Try again in a minute.", e)
-        } catch (e: BadRequestException) {
-            throw GraderException("Claude rejected the request: ${e.message}", e)
-        } catch (e: AnthropicServiceException) {
-            throw GraderException("Claude API error: ${e.message}", e)
-        } catch (e: AnthropicIoException) {
-            throw GraderException("Couldn't reach Claude (network problem).", e)
-        } catch (e: AnthropicException) {
-            throw GraderException("Claude request failed: ${e.message}", e)
         }
         when (response.stopReason().orElse(null)) {
             StopReason.REFUSAL -> throw GraderException("Claude declined to grade this answer.")
@@ -286,6 +267,71 @@ class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
         return text
     }
 
+    /**
+     * The Chinese tutor: answers the conversation [turns] (oldest first, alternating learner and
+     * tutor, starting and ending with the learner) only in Chinese, whatever language the learner
+     * writes in. The reply is streamed: [onText] gets the reply so far each time more arrives.
+     * Returns the whole reply.
+     */
+    fun tutorReply(turns: List<String>, onText: (String) -> Unit): String {
+        val params = MessageCreateParams.builder()
+            .model(model)
+            .maxTokens(16000L)
+            .system(TUTOR_SYSTEM)
+        turns.forEachIndexed { i, text -> if (i % 2 == 0) params.addUserMessage(text) else params.addAssistantMessage(text) }
+        if (supportsEffort(model)) params.outputConfig(OutputConfig.builder().effort(OutputConfig.Effort.LOW).build())
+        withFallback(params)
+        val reply = StringBuilder()
+        var stop: StopReason? = null
+        call {
+            client.messages().createStreaming(params.build(), RequestOptions.builder().timeout(Duration.ofMinutes(3)).build()).use { events ->
+                events.stream().forEach { event ->
+                    event.contentBlockDelta().flatMap { it.delta().text() }.ifPresent { delta ->
+                        reply.append(delta.text())
+                        onText(reply.toString())
+                    }
+                    event.messageDelta().flatMap { it.delta().stopReason() }.ifPresent { stop = it }
+                }
+            }
+        }
+        when (stop) {
+            StopReason.REFUSAL -> throw GraderException("Claude declined to answer this question.")
+            StopReason.MAX_TOKENS -> throw GraderException("Claude's answer was cut off.")
+            else -> Unit
+        }
+        if (reply.isBlank()) throw GraderException("Claude returned an empty answer.")
+        return reply.toString()
+    }
+
+    /** A refused request is retried server-side on the recommended fallback model, where the model supports it. */
+    private fun withFallback(params: MessageCreateParams.Builder) {
+        if (supportsServerFallback(model)) {
+            params.putAdditionalHeader("anthropic-beta", "server-side-fallback-2026-07-01")
+            params.putAdditionalBodyProperty("fallbacks", JsonValue.from("default"))
+        }
+    }
+
+    /** Runs one API call, turning the SDK's errors into a [GraderException] with a message for the learner. */
+    private fun <T> call(request: () -> T): T = try {
+        request()
+    } catch (e: UnauthorizedException) {
+        throw GraderException("Claude rejected the API key. Check it in Settings.", e)
+    } catch (e: PermissionDeniedException) {
+        throw GraderException("This API key isn't allowed to use $model.", e)
+    } catch (e: NotFoundException) {
+        throw GraderException("Model \"$model\" was not found. Check the model name in Settings.", e)
+    } catch (e: RateLimitException) {
+        throw GraderException("Claude is rate limiting this key. Try again in a minute.", e)
+    } catch (e: BadRequestException) {
+        throw GraderException("Claude rejected the request: ${e.message}", e)
+    } catch (e: AnthropicServiceException) {
+        throw GraderException("Claude API error: ${e.message}", e)
+    } catch (e: AnthropicIoException) {
+        throw GraderException("Couldn't reach Claude (network problem).", e)
+    } catch (e: AnthropicException) {
+        throw GraderException("Claude request failed: ${e.message}", e)
+    }
+
     override fun close() = client.close()
 
     companion object {
@@ -293,6 +339,16 @@ class ClaudeGrader(apiKey: String, private val model: String) : AutoCloseable {
         private const val READING_RULES =
             "Reading fields: for Chinese, the pinyin of that text with tone marks; for Japanese, its reading in hiragana; for other languages an empty string. " +
                 "In Chinese example sentences put a space between words (for example \"我 每天 学习 汉语。\")."
+
+        /** The Chinese tutor: questions in any language, answers only in Chinese. */
+        private val TUTOR_SYSTEM = """
+            You are a friendly, patient Mandarin Chinese teacher chatting with someone who is learning Chinese. They ask about words, grammar, usage, pronunciation or Chinese they are reading, and may write in any language (English, Chinese or a mix). They often paste a word together with the sentence it came from.
+            Always answer only in simplified Chinese characters. Never write English or any other language, not even one word, and never add translations, whatever language the question is in and even if they ask for another language. Write pinyin only when they ask about pronunciation or tones, and then only for the words concerned.
+            Write for a learner: use simple, common words and short sentences, and explain any harder word you need with easier Chinese.
+            When they ask what a word means, explain the meaning it has in their sentence (if they gave one), how it is usually used, and give one or two short example sentences. When they ask you to check a sentence, say whether it is right, give the corrected sentence and explain why in a few words.
+            Keep answers short, usually a few sentences; go longer only when the question needs it. If a question has nothing to do with Chinese, answer it briefly in Chinese and bring the conversation back to learning.
+            Write plain text: no Markdown (no **, #, tables or bullet symbols). Line breaks and numbered lines like "1. " are fine.
+        """.trimIndent()
 
         /** Effort isn't accepted by Haiku 4.5 / Sonnet 4.5 and older models. */
         fun supportsEffort(model: String): Boolean =

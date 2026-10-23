@@ -29,6 +29,9 @@ Mandarin Bean, or any web page or text. Point at a word (or tap it) for its piny
 its sentence means in English, search the dictionary without leaving the story, have the story read aloud, and answer
 comprehension questions in Chinese at the end.
 
+A **Chinese tutor** is docked at the bottom of every screen, like LinkedIn's messaging: ask Claude about a word,
+grammar, pronunciation or a sentence you're reading, in any language, and it answers only in Chinese.
+
 Phone calls, alarms, your calendar, SMS, emergency SOS, notifications and any apps you allow **keep working while
 locked**. Emails from senders or accounts you choose can be opened too.
 
@@ -54,6 +57,7 @@ switch it on. See [Lingo Lock on the Mac](#lingo-lock-on-the-mac) and
 - [AI grading with Claude (optional)](#ai-grading-with-claude-optional)
 - [Learning mode](#learning-mode)
 - [Stories](#stories)
+- [Chinese tutor](#chinese-tutor)
 - [Emergency exits](#emergency-exits)
 - [Limitations](#limitations)
 - [Project layout and development](#project-layout-and-development)
@@ -419,7 +423,8 @@ A free-form sentence can't be checked properly without a language model, so Ling
 - Claude checks that your sentence contains the word, is grammatical and uses the word in the right sense. It
   explains what's wrong, suggests a better version, and translates your sentence. It is also asked when the
   offline meaning check rejects an answer, which catches valid synonyms. It also fills in what new words are
-  missing (example sentences with their pinyin, readings, meanings) and runs [learning mode](#learning-mode).
+  missing (example sentences with their pinyin, readings, meanings) and runs [learning mode](#learning-mode) and the
+  [Chinese tutor](#chinese-tutor).
 - Requests use the API's server-side refusal fallback (`fallbacks: "default"`), so a request declined by a safety
   classifier is retried on Anthropic's recommended fallback model rather than failing.
 - Each graded sentence is one small API call billed to your key. If you're offline, or the call fails, the app
@@ -483,6 +488,24 @@ Writing stories, translating and checking answers need the Claude API key (*Sett
 *Always offline*) and a connection; each is one small call billed to your key. Reading, word lookup and reading
 aloud work offline once a story is on the phone.
 
+## Chinese tutor
+
+A chat with Claude for questions about Chinese, docked at the bottom of the app like LinkedIn's messaging. Write in
+any language (English, Chinese or a mix); the tutor **answers only in Chinese**, in simple words, with example
+sentences. Paste a word with the sentence it came from, for example *What does 主要 mean in 你理解了故事的主要内容?*,
+and it explains what the word means in that sentence and how it's usually used. It also checks sentences you write.
+
+- **On the phone:** the tutor's bar sits above the tabs. Tap it to open the conversation full screen; the arrow at the
+  top (or Back) closes it again. While it's closed, the bar shows the start of the last answer.
+- **On the Mac** (and any wide window): the bar sits in the bottom-right corner. Click it to open the conversation
+  above it, and click it again (or press Esc) to close it. **Enter** sends, **Shift+Enter** starts a new line.
+- The answer appears as Claude writes it. The speaker button reads an answer aloud, and you can select its text to
+  copy it into the dictionary. **+** starts a new conversation. The conversation lasts until you close the app.
+
+Each question is one API call billed to your key, with the whole conversation so far. The tutor needs the Claude API
+key (*Settings > AI grading*, not set to *Always offline*) and a connection; if a question can't be answered, it goes
+back into the box so you can send it again.
+
 ## Emergency exits
 
 - **Master PIN**: tap **PIN** on the practice screen to skip the session or pause for 1 or 3 hours.
@@ -526,7 +549,8 @@ shared/src/commonMain/kotlin/com/hanzilock/   everything the phone and the Mac s
   sync/     syncing your devices through a private GitHub repository
   platform/ what each device provides (database, settings, bundled content, files, parts of the UI)
   speech/, update/   speech and in-app update interfaces (each device implements them)
-  ui/       Compose screens (ui/learn: learning mode, ui/stories: the Stories tab and reader)
+  ui/       Compose screens (ui/learn: learning mode, ui/stories: the Stories tab and reader,
+            ui/tutor: the Chinese tutor)
 shared/src/commonTest/        JVM unit tests (pinyin, kana, matchers, tiles, schedule, import, bundled sets, stories)
 app/src/main/java/com/hanzilock/   the phone app
   lock/     accessibility service (gate), lock activity, priority-email notification listener

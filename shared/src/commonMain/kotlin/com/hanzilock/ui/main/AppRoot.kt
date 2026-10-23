@@ -2,6 +2,7 @@ package com.hanzilock.ui.main
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -57,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.hanzilock.data.DictEntry
 import com.hanzilock.platform.LocalAppCore
 import com.hanzilock.platform.LocalPlatformUi
@@ -70,6 +73,12 @@ import com.hanzilock.ui.stories.StoryLauncherDialog
 import com.hanzilock.ui.stories.StoryReaderScreen
 import com.hanzilock.ui.stories.importStory
 import com.hanzilock.ui.stories.rememberStoryLauncher
+import com.hanzilock.ui.tutor.TutorBar
+import com.hanzilock.ui.tutor.TutorBarHeight
+import com.hanzilock.ui.tutor.TutorDock
+import com.hanzilock.ui.tutor.TutorPanelMargin
+import com.hanzilock.ui.tutor.TutorPanelWidth
+import com.hanzilock.ui.tutor.TutorViewModel
 import kotlinx.coroutines.launch
 
 sealed interface Route {
@@ -111,6 +120,10 @@ private val TABS = listOf(
     Tab(Route.Stats, "Stats", Icons.Default.Star),
     Tab(Route.Settings, "Settings", Icons.Default.Settings),
 )
+
+/** The sidebar's width in a wide window, and how wide the screens next to it get. */
+private val RAIL_WIDTH = 80.dp
+private val CONTENT_WIDTH = 960.dp
 
 /** Cmd (Mac) or Ctrl + 1…6 switch tabs. */
 private val TAB_KEYS = listOf(Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six)
@@ -161,21 +174,36 @@ fun AppRoot(
 
     val current = nav.current
     val showTabs = TABS.any { it.route == current }
+    val tutor: TutorViewModel = viewModel(key = "tutor") { TutorViewModel(app) }
+    val showTutor = app.pin.isSet && current != Route.Setup
     // A wide window (the Mac, a tablet, DeX) gets a sidebar that is always there, and text that doesn't stretch.
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 840.dp
+        // There the tutor's bar sits in the bottom-right corner; the screens make room for it when they reach that far.
+        val roomForTutor = showTutor && wide && (maxWidth - RAIL_WIDTH - CONTENT_WIDTH) / 2 < TutorPanelWidth + TutorPanelMargin
         Scaffold(
             contentWindowInsets = WindowInsets.navigationBars.only(WindowInsetsSides.Bottom),
             snackbarHost = { SnackbarHost(snackbar) },
-            bottomBar = { if (showTabs && !wide) TabBar(nav, ::openTab) },
+            bottomBar = {
+                if (!wide) {
+                    Column {
+                        if (showTutor) TutorBar(tutor, if (showTabs) Modifier else Modifier.navigationBarsPadding())
+                        if (showTabs) TabBar(nav, ::openTab)
+                    }
+                }
+            },
         ) { padding ->
-            Row(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+            Row(
+                Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)
+                    .padding(bottom = if (roomForTutor) TutorBarHeight else 0.dp),
+            ) {
                 if (wide && app.pin.isSet) SideBar(nav, ::openTab)
                 Box(Modifier.weight(1f).fillMaxHeight().imePadding(), contentAlignment = Alignment.TopCenter) {
-                    Box(Modifier.widthIn(max = 960.dp).fillMaxSize()) { Screen(nav, current, snackbar) }
+                    Box(Modifier.widthIn(max = CONTENT_WIDTH).fillMaxSize()) { Screen(nav, current, snackbar) }
                 }
             }
         }
+        if (showTutor) TutorDock(tutor, wide, maxHeight)
     }
 
     // A file shared to / opened with Lingo Lock: import it as a new set.
