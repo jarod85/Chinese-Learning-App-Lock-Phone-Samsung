@@ -38,6 +38,7 @@ import com.hanzilock.core.LockEngine
 import com.hanzilock.core.ScheduleMath
 import com.hanzilock.data.DayStat
 import com.hanzilock.data.Totals
+import com.hanzilock.data.WordSet
 import com.hanzilock.platform.LocalAppCore
 import com.hanzilock.platform.LocalPlatformUi
 import com.hanzilock.ui.common.PinDialog
@@ -62,9 +63,14 @@ fun HomeScreen(nav: Navigator, snackbar: SnackbarHostState) {
     val problems = remember(resumed, settingsVersion) { platformUi.setupProblems() }
     val lang = remember(settingsVersion) { app.languages.active }
     val totals by produceState<Totals?>(null, wordsVersion, lang.code) { value = withContext(Dispatchers.IO) { app.words.totals(lang.code) } }
-    val activeSets by produceState(emptyList<String>(), wordsVersion, lang.code) {
-        value = withContext(Dispatchers.IO) { app.words.sets(lang.code).filter { it.enabled }.map { it.name } }
+    val sets by produceState(emptyList<WordSet>(), wordsVersion, lang.code) {
+        value = withContext(Dispatchers.IO) { app.words.sets(lang.code) }
     }
+    val activeSets = sets.filter { it.enabled }.map { it.name }
+    // The set last chosen for endless practice, else the first switched-on one.
+    val endlessSet = sets.firstOrNull { it.id == app.settings.endlessSetId(lang.code) }
+        ?: sets.firstOrNull { it.enabled } ?: sets.firstOrNull()
+    var pickEndlessSet by remember { mutableStateOf(false) }
     var pickLanguage by remember { mutableStateOf(false) }
     var addLanguage by remember { mutableStateOf(false) }
     val today by produceState<DayStat?>(null, wordsVersion, lang.code) {
@@ -133,7 +139,36 @@ fun HomeScreen(nav: Navigator, snackbar: SnackbarHostState) {
                 canLockNow = app.pin.isSet,
             )
 
-            Button(onClick = { nav.go(Route.Practice) }, modifier = Modifier.fillMaxWidth()) { Text("Practice now") }
+            Button(onClick = { nav.go(Route.Practice()) }, modifier = Modifier.fillMaxWidth()) { Text("Practice now") }
+
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Endless practice", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Keep practising one set for as long as you like. It doesn't unlock the lock.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            endlessSet?.let { "${it.name} · ${it.wordCount} words" } ?: "No sets yet",
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { pickEndlessSet = true }, enabled = sets.isNotEmpty()) { Text("Switch set") }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            endlessSet?.let {
+                                app.settings.setEndlessSetId(lang.code, it.id)
+                                nav.go(Route.Practice(it.id))
+                            }
+                        },
+                        enabled = endlessSet != null,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Practise this set endlessly") }
+                }
+            }
 
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -160,6 +195,17 @@ fun HomeScreen(nav: Navigator, snackbar: SnackbarHostState) {
         }
     }
 
+    if (pickEndlessSet) {
+        SetPickerDialog(
+            lang = lang.code,
+            selected = endlessSet?.id,
+            onDismiss = { pickEndlessSet = false },
+            onPick = {
+                pickEndlessSet = false
+                app.settings.setEndlessSetId(lang.code, it.id)
+            },
+        )
+    }
     if (pickLanguage) {
         LanguageDialog(onDismiss = { pickLanguage = false }, onAdd = { pickLanguage = false; addLanguage = true })
     }

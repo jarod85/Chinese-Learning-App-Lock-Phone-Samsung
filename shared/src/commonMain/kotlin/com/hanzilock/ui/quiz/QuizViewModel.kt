@@ -20,6 +20,7 @@ import com.hanzilock.quiz.SpeechMatcher
 import com.hanzilock.quiz.WordOutcome
 import com.hanzilock.speech.SpeechInput
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -89,6 +90,8 @@ class QuizViewModel(private val app: AppCore) : ViewModel() {
     val ui: StateFlow<Ui> = _ui
 
     private var started = false
+    private var startedSetId: Long? = null
+    private var loadJob: Job? = null
     private var registryReadings: Map<String, Set<String>>? = null
 
     // What was answered for the current word (logged with the attempt).
@@ -99,18 +102,24 @@ class QuizViewModel(private val app: AppCore) : ViewModel() {
 
     private fun profileOf(word: Word): LanguageProfile = app.languages.get(word.lang)
 
-    /** Loads (or resumes) a session; does nothing while one is already on screen. */
-    fun start(kind: SessionKind) {
+    /**
+     * Loads (or resumes) a session; does nothing while the same one is already on screen.
+     * [setId] practises that set endlessly; a different set (or none) switches to a new session.
+     */
+    fun start(kind: SessionKind, setId: Long? = null) {
         val phase = _ui.value.phase
-        if (started && (phase == Phase.LOADING || phase == Phase.QUIZ)) return
+        if (started && setId == startedSetId && (phase == Phase.LOADING || phase == Phase.QUIZ)) return
         started = true
+        startedSetId = setId
+        speech.stop()
         _ui.value = Ui(phase = Phase.LOADING, kind = kind)
-        viewModelScope.launch { loadSession(kind) }
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch { loadSession(kind) }
     }
 
     private suspend fun loadSession(kind: SessionKind) {
         app.ready.first { it }
-        when (val start = withContext(Dispatchers.IO) { app.sessions.startOrResume(kind) }) {
+        when (val start = withContext(Dispatchers.IO) { app.sessions.startOrResume(kind, setId = startedSetId) }) {
             is SessionManager.Start.Running -> showWord(start.session)
             SessionManager.Start.NoWords -> {
                 // Nothing to practice: don't hold the phone hostage.
@@ -534,6 +543,12 @@ class QuizViewModel(private val app: AppCore) : ViewModel() {
         if (u.busy) return
         _ui.update { it.copy(busy = true) }
         viewModelScope.launch {
+            val active = app.sessions.active.value
+            if (active != null && active.id != u.session?.id) {
+                // The session was replaced meanwhile (e.g. the lock ended endless practice): don't score into another one.
+                loadSession(u.kind)
+                return@launch
+            }
             val feedback = listOfNotNull(result.message, result.feedback).joinToString(" ").ifBlank { null }
             val session = withContext(Dispatchers.IO) {
                 if (result.skipped) {
@@ -570,9 +585,14 @@ class QuizViewModel(private val app: AppCore) : ViewModel() {
 
     fun leavePractice() {
         speech.stop()
+        val endless = _ui.value.session?.takeIf { it.endless }
         viewModelScope.launch {
             withContext(Dispatchers.IO) { app.sessions.abandonPractice() }
-            _ui.update { it.copy(phase = Phase.CLOSED) }
+            // Endless practice has no end of its own, so ending it shows how it went.
+            _ui.update {
+                if (endless == null) it.copy(phase = Phase.CLOSED)
+                else it.copy(phase = Phase.SUMMARY, summary = SummaryUi(endless.wins, endless.losses, unlocked = false, nextResetAt = null))
+            }
         }
     }
 

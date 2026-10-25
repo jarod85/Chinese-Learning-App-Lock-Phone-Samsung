@@ -81,7 +81,7 @@ import com.hanzilock.ui.theme.wordDisplaySize
 
 /** The quiz itself; the lock screen and the practice screen put their own frame around it. */
 @Composable
-fun QuizContent(vm: QuizViewModel, onDone: () -> Unit, modifier: Modifier = Modifier) {
+fun QuizContent(vm: QuizViewModel, onDone: () -> Unit, modifier: Modifier = Modifier, noWordsBody: String? = null) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     // Learning mode for the word just answered, shown over the quiz until you go back to it.
     var learning by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -100,7 +100,7 @@ fun QuizContent(vm: QuizViewModel, onDone: () -> Unit, modifier: Modifier = Modi
             Phase.LOADING -> CircularProgressIndicator(Modifier.align(Alignment.Center))
             Phase.NO_WORDS -> Message(
                 title = "No words to practise",
-                body = "Turn on a word set (Home > Sets) or add your own words, and practice will start from them.",
+                body = noWordsBody ?: "Turn on a word set (Home > Sets) or add your own words, and practice will start from them.",
                 button = "OK",
                 onClick = onDone,
             )
@@ -149,7 +149,11 @@ private fun SessionProgress(ui: QuizViewModel.Ui) {
     Column {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (s.rule == CompletionRule.CORRECT) "Correct: $done / ${s.target}" else "Word ${minOf(done + 1, s.target)} of ${s.target}",
+                when {
+                    s.endless -> "Word ${s.attempted + 1} · endless"
+                    s.rule == CompletionRule.CORRECT -> "Correct: $done / ${s.target}"
+                    else -> "Word ${minOf(done + 1, s.target)} of ${s.target}"
+                },
                 style = MaterialTheme.typography.labelLarge,
             )
             Spacer(Modifier.weight(1f))
@@ -157,8 +161,10 @@ private fun SessionProgress(ui: QuizViewModel.Ui) {
             Spacer(Modifier.width(10.dp))
             Text("✗ ${s.losses}", color = LossColor, style = MaterialTheme.typography.labelLarge)
         }
-        Spacer(Modifier.height(6.dp))
-        LinearProgressIndicator(progress = { done.toFloat() / s.target.coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth())
+        if (!s.endless) {
+            Spacer(Modifier.height(6.dp))
+            LinearProgressIndicator(progress = { done.toFloat() / s.target.coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth())
+        }
     }
 }
 

@@ -25,12 +25,16 @@ data class ActiveSession(
     val wins: Int = 0,
     val losses: Int = 0,
     val startedAt: Long,
+    /** Endless practice of this one set: words come only from it and the session never completes. */
+    val setId: Long? = null,
 ) {
     val attempted: Int get() = wins + losses
+    val endless: Boolean get() = setId != null
     val isComplete: Boolean
-        get() = when (rule) {
-            CompletionRule.ATTEMPTED -> attempted >= target
-            CompletionRule.CORRECT -> wins >= target
+        get() = when {
+            endless -> false
+            rule == CompletionRule.ATTEMPTED -> attempted >= target
+            else -> wins >= target
         }
     val currentWordId: Long? get() = if (isComplete) null else queue.getOrNull(index)
 }
@@ -62,9 +66,13 @@ class SessionManager(
     private fun load(): ActiveSession? =
         settings.activeSession?.let { runCatching { AppJson.decodeFromString<ActiveSession>(it) }.getOrNull() }
 
-    private fun save(s: ActiveSession?) {
+    private fun save(session: ActiveSession?): ActiveSession? {
+        // An endless session only needs the words still to come and the last few it dealt.
+        val s = session?.takeIf { it.endless && it.index > 2 * ENDLESS_GAP }
+            ?.let { it.copy(queue = it.queue.drop(it.index - ENDLESS_GAP), index = ENDLESS_GAP) } ?: session
         settings.activeSession = s?.let { AppJson.encodeToString(it) }
         _active.value = s
+        return s
     }
 
     sealed interface Start {
@@ -75,21 +83,33 @@ class SessionManager(
         data object NotNeeded : Start
     }
 
-    /** Returns the running session (upgraded to a lock session if needed) or deals a new one. */
+    /**
+     * Returns the running session (upgraded to a lock session if needed) or deals a new one.
+     * [setId] asks for endless practice of that set. A running lock session always wins; any other
+     * practice session that isn't the one asked for is ended first.
+     */
     @Synchronized
-    fun startOrResume(kind: SessionKind, now: Long = System.currentTimeMillis()): Start {
+    fun startOrResume(kind: SessionKind, now: Long = System.currentTimeMillis(), setId: Long? = null): Start {
+        require(kind == SessionKind.PRACTICE || setId == null) { "Lock sessions can't be endless" }
+        if (kind == SessionKind.LOCK && _active.value?.endless == true && !lockEngine.isLockDue(now)) return Start.NotNeeded
         _active.value?.let { s ->
-            if (!s.isComplete) {
-                val upgraded = if (kind == SessionKind.LOCK && s.kind != SessionKind.LOCK) s.copy(kind = SessionKind.LOCK) else s
-                if (upgraded != s) save(upgraded)
-                return Start.Running(upgraded)
+            when {
+                // Finished but not closed (e.g. app killed on the last word).
+                s.isComplete -> finish("completed", now)
+                // An endless session never completes, so it can't become a lock session.
+                s.setId != setId && (kind == SessionKind.LOCK || s.kind == SessionKind.PRACTICE) -> endPractice(s, now)
+                else -> {
+                    val upgraded = if (kind == SessionKind.LOCK && s.kind != SessionKind.LOCK) s.copy(kind = SessionKind.LOCK) else s
+                    if (upgraded != s) save(upgraded)
+                    return Start.Running(upgraded)
+                }
             }
-            finish("completed", now)   // finished but not closed (e.g. app killed on the last word)
         }
         if (kind == SessionKind.LOCK && !lockEngine.isLockDue(now)) return Start.NotNeeded
-        val lang = settings.activeLanguage
-        val wanted = settings.wordsPerSession
-        val picked = words.pickForSession(lang, now, wanted, emptySet())
+        val lang = if (setId != null) words.set(setId)?.lang ?: return Start.NoWords else settings.activeLanguage
+        // Endless practice deals one word at a time, so a missed word can come back soon.
+        val wanted = if (setId != null) 1 else settings.wordsPerSession
+        val picked = words.pickForSession(lang, now, wanted, emptySet(), setId)
         if (picked.isEmpty()) return Start.NoWords
         val id = words.createSession(kind.name.lowercase(), lang, now)
         val session = ActiveSession(
@@ -100,6 +120,7 @@ class SessionManager(
             rule = settings.completionRule,
             queue = picked.map { it.id }.shuffled(),
             startedAt = now,
+            setId = setId,
         )
         save(session)
         return Start.Running(session)
@@ -124,8 +145,7 @@ class SessionManager(
             // "Get N right" mode ran out of words: deal a different word, or recycle an earlier one.
             next = next.copy(queue = next.queue + anotherWord(s, outcome.wordId, now))
         }
-        save(next)
-        return next
+        return save(next)
     }
 
     /**
@@ -137,15 +157,19 @@ class SessionManager(
         val s = _active.value ?: return null
         val current = s.currentWordId ?: return s
         val next = s.copy(index = s.index + 1, queue = s.queue + anotherWord(s, current, now))
-        save(next)
-        return next
+        return save(next)
     }
 
-    /** A word not dealt yet in this session, or else an earlier one (only [current] if it's the only word). */
-    private fun anotherWord(s: ActiveSession, current: Long, now: Long): Long =
-        words.pickForSession(s.lang, now, 1, s.queue.toSet()).firstOrNull()?.id
-            ?: s.queue.distinct().filter { it != current }.randomOrNull()
+    /**
+     * A word not dealt yet in this session, or else an earlier one (only [current] if it's the only word).
+     * Endless practice only keeps the last few words out, so the set cycles by spaced repetition.
+     */
+    private fun anotherWord(s: ActiveSession, current: Long, now: Long): Long {
+        val recent = if (s.endless) s.queue.takeLast(ENDLESS_GAP) else s.queue
+        return words.pickForSession(s.lang, now, 1, recent.toSet() + current, s.setId).firstOrNull()?.id
+            ?: recent.distinct().filter { it != current }.randomOrNull()
             ?: current
+    }
 
     /** Moves past a word that no longer exists (deleted mid-session) without scoring it. */
     @Synchronized
@@ -153,7 +177,17 @@ class SessionManager(
         val s = _active.value ?: return null
         var next = s.copy(index = s.index + 1)
         if (!next.isComplete && next.index >= next.queue.size) {
-            val fresh = words.pickForSession(s.lang, now, 1, next.queue.toSet()).map { it.id }
+            val gone = setOfNotNull(s.currentWordId)
+            val fresh = if (s.endless) {
+                words.pickForSession(s.lang, now, 1, gone, s.setId).map { it.id }
+            } else {
+                words.pickForSession(s.lang, now, 1, next.queue.toSet()).map { it.id }
+            }
+            if (fresh.isEmpty() && s.endless) {
+                // The set has nothing left to practise.
+                endPractice(s, now)
+                return null
+            }
             next = if (fresh.isEmpty()) {
                 // Nothing left to deal: shrink the goal to what can still be reached.
                 next.copy(target = if (next.rule == CompletionRule.ATTEMPTED) next.attempted else next.wins)
@@ -161,8 +195,7 @@ class SessionManager(
                 next.copy(queue = next.queue + fresh)
             }
         }
-        save(next)
-        return next
+        return save(next)
     }
 
     /** Ends the session; a finished lock session unlocks the phone until the next reset time. */
@@ -189,7 +222,16 @@ class SessionManager(
     fun abandonPractice(now: Long = System.currentTimeMillis()) {
         val s = _active.value ?: return
         if (s.kind != SessionKind.PRACTICE) return
+        endPractice(s, now)
+    }
+
+    private fun endPractice(s: ActiveSession, now: Long) {
         words.finishSession(s.id, if (s.attempted > 0) "partial" else "abandoned", now)
         save(null)
+    }
+
+    private companion object {
+        /** How many of the last words endless practice keeps from coming straight back. */
+        const val ENDLESS_GAP = 4
     }
 }
