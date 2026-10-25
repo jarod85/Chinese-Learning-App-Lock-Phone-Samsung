@@ -90,7 +90,8 @@ sealed interface Route {
     data class WordDetail(val id: Long) : Route
     data class WordEdit(val id: Long?, val prefill: DictEntry? = null, val setId: Long? = null) : Route
     data class Learn(val id: Long) : Route
-    data object Practice : Route
+    /** [setId]: practise that set endlessly instead of a session of N words. */
+    data class Practice(val setId: Long? = null) : Route
     data object AllowedApps : Route
     data object PriorityEmail : Route
     data object Setup : Route
@@ -282,7 +283,7 @@ private fun Screen(nav: Navigator, current: Route, snackbar: SnackbarHostState) 
         is Route.WordDetail -> WordDetailScreen(nav, current.id)
         is Route.WordEdit -> WordEditScreen(nav, current.id, current.prefill, snackbar, current.setId)
         is Route.Learn -> LearnScreen(nav, current.id)
-        Route.Practice -> PracticeScreen(nav)
+        is Route.Practice -> PracticeScreen(nav, current.setId)
         Route.AllowedApps -> platformUi.AllowedAppsScreen(nav)
         Route.PriorityEmail -> platformUi.PriorityEmailScreen(nav)
         Route.Setup -> platformUi.SetupScreen(nav)

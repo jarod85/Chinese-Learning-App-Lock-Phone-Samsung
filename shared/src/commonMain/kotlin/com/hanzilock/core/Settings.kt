@@ -118,6 +118,11 @@ class Settings(private val prefs: Prefs) {
         get() = prefs.getBoolean("allow_meaning_override", true)
         set(v) = editShared { putBoolean("allow_meaning_override", v) }
 
+    /** The set last chosen for endless practice in [lang] (0 = none). Set ids differ per device, so not shared. */
+    fun endlessSetId(lang: String): Long = prefs.getLong("endless_set_$lang", 0L)
+
+    fun setEndlessSetId(lang: String, setId: Long) = edit { putLong("endless_set_$lang", setId) }
+
     // ---- Claude ---------------------------------------------------------------------------------
 
     var claudeApiKey: String

@@ -383,14 +383,16 @@ class WordRepository(internal val db: SqlDb) {
     /**
      * Words for a session from the language's switched-on sets: first those due for review
      * (oldest first), then new words from the easiest set onwards, then the ones due soonest.
-     * Words still missing a meaning are left out.
+     * Words still missing a meaning are left out. With [setId], only that set's words are used,
+     * whether it's switched on or not.
      */
-    fun pickForSession(lang: String, now: Long, count: Int, exclude: Set<Long>): List<Word> {
+    fun pickForSession(lang: String, now: Long, count: Int, exclude: Set<Long>, setId: Long? = null): List<Word> {
         val picked = LinkedHashMap<Long, Word>()
         val limit = count + exclude.size + 5
+        val inSets = if (setId != null) "sw.set_id=$setId" else "s.enabled=1"
         val base = "SELECT w.* FROM words w WHERE w.lang=? AND w.enabled=1 AND w.meanings<>'[]' AND " +
-            "EXISTS (SELECT 1 FROM set_words sw JOIN sets s ON s.id=sw.set_id WHERE sw.word_id=w.id AND s.enabled=1)"
-        val firstSet = "(SELECT MIN(s.sort) FROM set_words sw JOIN sets s ON s.id=sw.set_id WHERE sw.word_id=w.id AND s.enabled=1)"
+            "EXISTS (SELECT 1 FROM set_words sw JOIN sets s ON s.id=sw.set_id WHERE sw.word_id=w.id AND $inSets)"
+        val firstSet = "(SELECT MIN(s.sort) FROM set_words sw JOIN sets s ON s.id=sw.set_id WHERE sw.word_id=w.id AND $inSets)"
         fun take(sql: String) {
             if (picked.size >= count) return
             db.rawQuery("$sql LIMIT $limit", arrayOf(lang)).mapRows { it.toWord() }.forEach { w ->
