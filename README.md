@@ -484,6 +484,12 @@ Reading a story:
 - After the last page come the **questions**: answer each one in Chinese, typed or spoken with the mic, then
   **explain the story in your own words in Chinese**. Claude says whether you understood it, corrects your Chinese
   (with pinyin and an English translation) and shows a good answer. **Finish story** ticks it off in your list.
+- On both Mac and Android, choose a **Comprehension level**: **Literal** for facts stated in the story,
+  **Inferential** (the default) for motives, feelings and likely outcomes supported by clues, or **Evaluative**
+  for judging choices and defending your view with story details. The thinking gets harder while the Chinese
+  stays suited to the story's HSK level. Claude accepts different supported interpretations and defensible opinions.
+  Each level's questions are saved with the story, and switching levels keeps your answers and feedback while the
+  reader is open. Your chosen level syncs between devices; older stories' existing questions are kept under Literal.
 
 Writing stories, translating and checking answers need the Claude API key (*Settings > AI grading*, not set to
 *Always offline*) and a connection; each is one small call billed to your key. Reading, word lookup and reading

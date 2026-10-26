@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -101,6 +103,7 @@ import com.hanzilock.data.DictEntry
 import com.hanzilock.data.WordScope
 import com.hanzilock.platform.LocalAppCore
 import com.hanzilock.platform.LocalPlatformUi
+import com.hanzilock.stories.ComprehensionLevel
 import com.hanzilock.stories.Story
 import com.hanzilock.stories.StoryAnswerReview
 import com.hanzilock.ui.common.AppIcons
@@ -730,12 +733,14 @@ private fun pagesLabel(pages: List<Int>): String {
 }
 
 /** After the last page: questions about the story, then explaining it in your own words, all in Chinese. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ComprehensionPage(ui: StoryViewModel.Ui, vm: StoryViewModel, onDone: () -> Unit) {
     val story = ui.story ?: return
     var showPinyin by rememberSaveable { mutableStateOf(true) }
     var showEnglish by rememberSaveable { mutableStateOf(false) }
-    val questions = story.body.questions
+    val questions = ui.questions
+    val questionsError = ui.questionsError
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -743,6 +748,23 @@ private fun ComprehensionPage(ui: StoryViewModel.Ui, vm: StoryViewModel, onDone:
         Text("Did you understand it?", style = MaterialTheme.typography.titleLarge)
         Text(
             "Answer in Chinese - type it or tap the mic and say it. Claude tells you what's right and corrects your Chinese.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text("Comprehension level", style = MaterialTheme.typography.labelLarge)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ComprehensionLevel.entries.forEach { level ->
+                FilterChip(
+                    selected = ui.comprehensionLevel == level,
+                    onClick = { vm.setComprehensionLevel(level) },
+                    enabled = ui.checking == null,
+                    label = { Text(level.label) },
+                )
+            }
+        }
+        Text(ui.comprehensionLevel.description, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            ui.comprehensionLevel.answerHint,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -754,12 +776,13 @@ private fun ComprehensionPage(ui: StoryViewModel.Ui, vm: StoryViewModel, onDone:
             ui.questionsLoading -> Row(Modifier.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(12.dp))
-                Text("Claude is writing questions about the story…", style = MaterialTheme.typography.bodyLarge)
+                Text("Claude is writing ${ui.comprehensionLevel.label.lowercase()} questions…", style = MaterialTheme.typography.bodyLarge)
             }
-            questions.isEmpty() && ui.questionsError != null -> {
-                Text(ui.questionsError, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            questions.isEmpty() && questionsError != null -> {
+                Text(questionsError, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                 OutlinedButton(onClick = vm::loadQuestions) { Text("Try again") }
             }
+            questions.isEmpty() -> OutlinedButton(onClick = vm::loadQuestions) { Text("Load questions") }
         }
         questions.forEachIndexed { i, q ->
             AnswerCard("${i + 1}.", q.question, q.pinyin, q.english, i, ui, vm, showPinyin, showEnglish)

@@ -10,7 +10,9 @@ import com.hanzilock.data.WordScope
 import com.hanzilock.data.mapRows
 import com.hanzilock.data.str
 import com.hanzilock.stories.StoryBody
+import com.hanzilock.stories.ComprehensionLevel
 import com.hanzilock.stories.StoryDraft
+import com.hanzilock.stories.StoryQuestion
 import com.hanzilock.sync.SyncEngine
 import com.hanzilock.sync.SyncWord
 import org.junit.Assert.assertEquals
@@ -255,5 +257,27 @@ class SyncEngineTest {
         mac.stories.delete(onMac.id)
         sync(mac, phone)
         assertTrue(phone.stories.list().isEmpty())
+    }
+
+    @Test
+    fun comprehensionLevelsAndSelectedPreferenceSyncWithTheStory() {
+        val phone = device("phone")
+        val mac = device("mac")
+        phone.settings.storyComprehensionLevel = ComprehensionLevel.EVALUATIVE
+        val literal = listOf(StoryQuestion("谁回家了？"))
+        val inferential = listOf(StoryQuestion("小猫为什么想回家？"))
+        val evaluative = listOf(StoryQuestion("你觉得小猫应该回家吗？为什么？"))
+        val body = StoryBody(questions = literal)
+            .withQuestions(ComprehensionLevel.INFERENTIAL, inferential)
+            .withQuestions(ComprehensionLevel.EVALUATIVE, evaluative)
+        phone.stories.add(StoryDraft("小猫", "The kitten", "Claude", null, "HSK 2", body))
+
+        assertTrue(sync(phone, mac))
+        val onMac = mac.stories.get(mac.stories.list().single().id)!!
+        assertEquals(ComprehensionLevel.EVALUATIVE, mac.settings.storyComprehensionLevel)
+        assertEquals(literal, onMac.body.questionsFor(ComprehensionLevel.LITERAL))
+        assertEquals(inferential, onMac.body.questionsFor(ComprehensionLevel.INFERENTIAL))
+        assertEquals(evaluative, onMac.body.questionsFor(ComprehensionLevel.EVALUATIVE))
+        assertFalse(sync(phone, mac))
     }
 }

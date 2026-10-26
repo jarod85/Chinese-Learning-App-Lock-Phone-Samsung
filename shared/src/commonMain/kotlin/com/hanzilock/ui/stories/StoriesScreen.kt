@@ -126,7 +126,9 @@ fun StoriesScreen(nav: Navigator, snackbar: SnackbarHostState) {
             onWrite = { level, length, topic ->
                 writing = false
                 app.settings.storyLevel = level
-                launcher.run("Claude is writing your story…") { app.storyImporter.write(level, length, topic) }
+                launcher.run("Claude is writing your story…") {
+                    app.storyImporter.write(level, length, topic, app.settings.storyComprehensionLevel)
+                }
             },
         )
     }

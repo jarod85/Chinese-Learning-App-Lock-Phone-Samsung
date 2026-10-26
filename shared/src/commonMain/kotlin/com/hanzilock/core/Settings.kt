@@ -1,6 +1,7 @@
 package com.hanzilock.core
 
 import com.hanzilock.platform.Prefs
+import com.hanzilock.stories.ComprehensionLevel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -189,6 +190,11 @@ class Settings(private val prefs: Prefs) {
         get() = prefs.getBoolean("story_slow", false)
         set(v) = editShared { putBoolean("story_slow", v) }
 
+    /** Thinking depth for story questions; remembered and shared between phone and Mac. */
+    var storyComprehensionLevel: ComprehensionLevel
+        get() = enumOr(prefs.getString("story_comprehension_level", null), ComprehensionLevel.INFERENTIAL)
+        set(v) = editShared { putString("story_comprehension_level", v.name) }
+
     // ---- misc -----------------------------------------------------------------------------------
 
     /** Only used to migrate installs from before word sets existed. */
@@ -265,6 +271,7 @@ class Settings(private val prefs: Prefs) {
         val claudeModel: String? = null,
         val storyLevel: Int,
         val storySlow: Boolean,
+        val storyComprehensionLevel: String = ComprehensionLevel.INFERENTIAL.name,
     )
 
     fun shared() = Shared(
@@ -284,6 +291,7 @@ class Settings(private val prefs: Prefs) {
         claudeModel = prefs.getString("claude_model", null),
         storyLevel = storyLevel,
         storySlow = storySlow,
+        storyComprehensionLevel = storyComprehensionLevel.name,
     )
 
     /** Takes another device's newer [s] (keeping its time, so it isn't sent back as a change). */
@@ -303,6 +311,7 @@ class Settings(private val prefs: Prefs) {
         putString("claude_model", s.claudeModel)
         putInt("story_level", s.storyLevel)
         putBoolean("story_slow", s.storySlow)
+        putString("story_comprehension_level", s.storyComprehensionLevel)
         putLong("shared_settings_at", s.at)
     }
 

@@ -21,9 +21,14 @@ class StoryImporter(
     class ImportException(message: String) : Exception(message)
 
     /** Claude writes a new story at HSK [level]; returns its id. */
-    suspend fun write(level: Int, length: StoryLength, topic: String): Long = withContext(Dispatchers.IO) {
+    suspend fun write(
+        level: Int,
+        length: StoryLength,
+        topic: String,
+        comprehension: ComprehensionLevel = ComprehensionLevel.INFERENTIAL,
+    ): Long = withContext(Dispatchers.IO) {
         val g = grader() ?: throw ImportException(NO_CLAUDE)
-        val w = runCatching { g.writeStory(level, length, topic, stories.recentTitles()) }
+        val w = runCatching { g.writeStory(level, length, topic, stories.recentTitles(), comprehension) }
             .getOrElse { throw ImportException(it.message ?: "Claude couldn't write a story. Try again.") }
         val sentences = w.paragraphs.map { p -> p.sentences.filter { it.text.isNotBlank() } }.filter { it.isNotEmpty() }
         val forms = forms(sentences.flatten().filterNot { StoryText.isSpaced(it.text) }.joinToString("\n") { it.text })
@@ -42,7 +47,7 @@ class StoryImporter(
                 source = SOURCE_CLAUDE,
                 url = null,
                 level = "HSK $level",
-                body = StoryBody(chunks, w.questions.filter { it.question.isNotBlank() }),
+                body = StoryBody(chunks).withQuestions(comprehension, w.questions.filter { it.question.isNotBlank() }.take(3)),
             ),
         )
     }

@@ -19,12 +19,41 @@ data class StoryChunk(
 @Serializable
 data class StoryQuestion(val question: String, val pinyin: String = "", val english: String = "")
 
+/** Thinking depth, separate from the story's HSK vocabulary level. */
+@Serializable
+enum class ComprehensionLevel(val label: String, val description: String, val answerHint: String) {
+    LITERAL(
+        "Literal",
+        "Find facts the story states directly: who, what, where and when.",
+        "Answer in Chinese using details from the story.",
+    ),
+    INFERENTIAL(
+        "Inferential",
+        "Read between the lines: explain motives, feelings and likely outcomes using clues.",
+        "Answer in Chinese and explain which clues support your interpretation.",
+    ),
+    EVALUATIVE(
+        "Evaluative",
+        "Judge choices, compare alternatives and defend your view with details from the story.",
+        "Give your view in Chinese, with a reason and a detail from the story. Different views can be valid.",
+    ),
+}
+
 /** Everything in a story that isn't shown in the list: the text, translations and questions. */
 @Serializable
 data class StoryBody(
     val chunks: List<StoryChunk> = emptyList(),
+    /** Questions saved before levels existed are literal questions. */
     val questions: List<StoryQuestion> = emptyList(),
-)
+    val questionSets: Map<ComprehensionLevel, List<StoryQuestion>> = emptyMap(),
+) {
+    fun questionsFor(level: ComprehensionLevel): List<StoryQuestion> =
+        if (level == ComprehensionLevel.LITERAL) questions else questionSets[level].orEmpty()
+
+    fun withQuestions(level: ComprehensionLevel, found: List<StoryQuestion>): StoryBody =
+        if (level == ComprehensionLevel.LITERAL) copy(questions = found)
+        else copy(questionSets = questionSets + (level to found))
+}
 
 data class Story(
     val id: Long,

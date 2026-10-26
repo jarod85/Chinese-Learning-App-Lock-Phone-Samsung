@@ -71,13 +71,41 @@ private val QUESTION_ITEM = mapOf(
     "additionalProperties" to false,
 )
 
-private fun questionRules(level: String?) =
-    "questions: 3 comprehension questions about the story in simple simplified Chinese (no harder than the story${level?.let { ", $it" } ?: ""}), " +
-        "each answerable in one or two sentences from the text: what happened, and at least one asking why or how. " +
-        "Give each question's pinyin with tone marks and its English translation."
+private fun questionRules(level: String?, comprehension: ComprehensionLevel): String {
+    val thinking = when (comprehension) {
+        ComprehensionLevel.LITERAL -> """
+            Literal comprehension only: ask about facts explicitly stated in the story (who, what, where, when, or an explicitly stated reason).
+            Each answer can be found directly in the text. Do not require inference or personal judgement.
+        """
+        ComprehensionLevel.INFERENTIAL -> """
+            Inferential comprehension only: every question must require reading between the lines, connecting clues rather than copying a sentence.
+            Ask about unstated motives or feelings, implied causes, relationships, or a likely next event. Choose different kinds of inference that this particular story supports.
+            Ask the learner to explain their reasoning using specific clues from the story. Do not ask factual recall questions disguised as why/how questions when the text already states the answer.
+            Keep inferences grounded in the story; do not require outside knowledge or invent missing facts. More than one well-supported interpretation can be valid.
+        """
+        ComprehensionLevel.EVALUATIVE -> """
+            Evaluative comprehension only: every question must ask for a judgement and a reason supported by a specific detail from the story.
+            Ask the learner to assess a character's choice, compare a plausible alternative and its consequences, or evaluate the story's message. Use varied tasks suited to this particular story.
+            Invite the learner's own view and allow different defensible opinions; do not imply there is one correct opinion. Avoid factual recall and generic opinion questions unrelated to the story.
+        """
+    }
+    return """
+        questions: exactly 3 ${comprehension.label.lowercase()} comprehension questions in simplified Chinese about the story.
+        ${thinking.trimIndent()}
+        Keep vocabulary and grammar accessible for the story's level${level?.let { " ($it)" } ?: ""}. Increase the thinking challenge, not obscure vocabulary.
+        Encourage answers in the learner's own Chinese: one or two sentences for literal questions, two or three connected sentences with reasons for inferential/evaluative questions. At beginner levels a short claim and a simple reason are enough.
+        Give each question's pinyin with tone marks and its English translation. Do not reveal the answer in the question.
+    """.trimIndent()
+}
 
 /** A new story in simplified Chinese at HSK [level], with sentence translations and 3 questions. */
-fun ClaudeGrader.writeStory(level: Int, length: StoryLength, topic: String, avoidTitles: List<String>): WrittenStory {
+fun ClaudeGrader.writeStory(
+    level: Int,
+    length: StoryLength,
+    topic: String,
+    avoidTitles: List<String>,
+    comprehension: ComprehensionLevel = ComprehensionLevel.INFERENTIAL,
+): WrittenStory {
     val chars = ((STORY_CHARS[level] ?: 400) * length.factor).toInt()
     val sentence = mapOf(
         "type" to "object",
@@ -102,7 +130,7 @@ fun ClaudeGrader.writeStory(level: Int, length: StoryLength, topic: String, avoi
             Write an original story of about $chars Chinese characters with a clear beginning, middle and end: characters, a small problem or surprise, and how it turns out. Make it natural and engaging, not a textbook dialogue. Use short paragraphs of 1-4 sentences.
             Split every paragraph into its sentences. text: the sentence in simplified Chinese with a space between words, punctuation included (for example "我 每天 学习 汉语 。"); en: a natural English translation of that sentence.
             title: a short Chinese title in simplified Chinese, without spaces; title_en: the title in English.
-            ${questionRules("HSK $level")}
+            ${questionRules("HSK $level", comprehension)}
         """.trimIndent(),
         user = "Topic: $subject" + if (avoidTitles.isEmpty()) "" else "\nDon't reuse these titles: ${avoidTitles.joinToString("、")}",
         properties = linkedMapOf(
@@ -135,28 +163,56 @@ fun ClaudeGrader.translateSentences(title: String, sentences: List<String>): Lis
 }
 
 /** Three comprehension questions about a story you have read. */
-fun ClaudeGrader.storyQuestions(title: String, story: String, level: String?): List<StoryQuestion> {
+fun ClaudeGrader.storyQuestions(
+    title: String,
+    story: String,
+    level: String?,
+    comprehension: ComprehensionLevel = ComprehensionLevel.INFERENTIAL,
+): List<StoryQuestion> {
     val text = ask(
-        system = "You are a patient Chinese teacher. The learner has just read the story below.\n${questionRules(level)}",
+        system = "You are a patient Chinese teacher. The learner has just read the story below.\n${questionRules(level, comprehension)}",
         user = "Title: $title\n${level?.let { "Level: $it\n" } ?: ""}\n$story",
         properties = emptyMap(),
         rawProperties = mapOf("questions" to mapOf("type" to "array", "items" to QUESTION_ITEM)),
         timeout = Duration.ofSeconds(90),
     )
-    return AppJson.decodeFromString<Questions>(text).questions
+    return AppJson.decodeFromString<Questions>(text).questions.filter { it.question.isNotBlank() }.take(3)
+        .ifEmpty { throw ClaudeGrader.GraderException("Claude returned no questions. Try again.") }
+}
+
+private fun answerCriteria(comprehension: ComprehensionLevel): String = when (comprehension) {
+    ComprehensionLevel.LITERAL -> "correct: true if the answer accurately gives the facts asked for in the story."
+    ComprehensionLevel.INFERENTIAL -> """
+        correct: true if the learner offers a plausible inference and supports it with relevant clues from the story, even if it differs from your preferred interpretation.
+        Distinguish an unsupported guess from an interpretation grounded in the text. If the reasoning is missing, ask for a clue; do not demand that an inferred idea be explicitly stated in the story.
+    """.trimIndent()
+    ComprehensionLevel.EVALUATIVE -> """
+        correct: true if the learner gives a relevant judgement, a coherent reason and supporting detail from the story, without contradicting its facts.
+        Accept different defensible opinions, including disagreement with the narrator or with your preferred view. Never mark an answer wrong merely because of the learner's opinion.
+        Evaluate the reasoning and use of story evidence, not agreement with one model answer. If support is missing, suggest a relevant detail to consider without imposing a particular opinion.
+    """.trimIndent()
 }
 
 /**
  * Feedback on the learner's answer to [question], in simple Chinese with pinyin and an English
  * translation. With [question] null, [answer] is their explanation of the whole story.
  */
-fun ClaudeGrader.reviewStoryAnswer(title: String, story: String, level: String?, question: String?, answer: String): StoryAnswerReview {
+fun ClaudeGrader.reviewStoryAnswer(
+    title: String,
+    story: String,
+    level: String?,
+    question: String?,
+    answer: String,
+    comprehension: ComprehensionLevel = ComprehensionLevel.INFERENTIAL,
+): StoryAnswerReview {
     val task = if (question != null) {
         """
             The learner read the story below and answered a comprehension question in Chinese.
-            correct: true if the answer is right about the story (small language mistakes don't matter here).
-            feedback: 1-3 short sentences: whether the answer is right and what is missing or wrong, then the most important language mistake, if any.
-            better_answer: a correct, natural answer to the question in simple Chinese, close to the learner's own words where they were right.
+            Comprehension level: ${comprehension.label}.
+            ${answerCriteria(comprehension)}
+            Small language mistakes don't affect correct when the meaning and reasoning are clear.
+            feedback: 1-3 short sentences: what the learner understood, whether their evidence and reasoning answer the question, what is missing or wrong, then the most important language mistake, if any.
+            better_answer: one possible well-supported, natural answer in simple Chinese. Preserve the learner's view and reasoning where defensible, improve their expression and connect their ideas with simple reason/contrast phrases. Do not replace a valid opinion with your own.
         """
     } else {
         """
@@ -176,7 +232,7 @@ fun ClaudeGrader.reviewStoryAnswer(title: String, story: String, level: String?,
         user = "Title: $title\n\nStory:\n$story\n\n" + (question?.let { "Question: $it\n" } ?: "Task: explain the story in Chinese\n") +
             "Learner's answer: $answer",
         properties = linkedMapOf(
-            "correct" to ("boolean" to "true if the answer is right about the story"),
+            "correct" to ("boolean" to "true if the answer meets the task's comprehension criteria"),
             "feedback" to ("string" to "short feedback in simple Chinese"),
             "feedback_pinyin" to ("string" to "pinyin of the feedback"),
             "feedback_en" to ("string" to "English translation of the feedback"),

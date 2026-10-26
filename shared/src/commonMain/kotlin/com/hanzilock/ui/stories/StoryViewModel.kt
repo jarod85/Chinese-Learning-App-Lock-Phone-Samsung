@@ -5,9 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.hanzilock.AppCore
 import com.hanzilock.data.DictEntry
 import com.hanzilock.speech.SpeechInput
+import com.hanzilock.stories.ComprehensionLevel
 import com.hanzilock.stories.Story
 import com.hanzilock.stories.StoryAnswerReview
+import com.hanzilock.stories.StoryBody
 import com.hanzilock.stories.StoryImporter
+import com.hanzilock.stories.StoryQuestion
 import com.hanzilock.stories.StoryText
 import com.hanzilock.stories.reviewStoryAnswer
 import com.hanzilock.stories.storyQuestions
@@ -19,6 +22,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -60,6 +65,9 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
         val characters: List<DictEntry> = emptyList(),
     )
 
+    /** Kept separately for each level while the reader is open. */
+    data class QuestionProgress(val answers: List<String>, val reviews: List<StoryAnswerReview?>)
+
     data class Ui(
         val story: Story? = null,
         val pages: List<Page> = emptyList(),
@@ -93,11 +101,10 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
         val slow: Boolean = false,
         /** A short message, e.g. that no Chinese voice is installed. */
         val note: String? = null,
-        val questionsLoading: Boolean = false,
-        val questionsError: String? = null,
-        /** Your answers to the questions, and Claude's feedback on them. */
-        val answers: List<String> = emptyList(),
-        val reviews: List<StoryAnswerReview?> = emptyList(),
+        val comprehensionLevel: ComprehensionLevel = ComprehensionLevel.INFERENTIAL,
+        val questionLevelsLoading: Set<ComprehensionLevel> = emptySet(),
+        val questionErrors: Map<ComprehensionLevel, String> = emptyMap(),
+        val progressByLevel: Map<ComprehensionLevel, QuestionProgress> = emptyMap(),
         /** Your explanation of the whole story in Chinese, and the feedback on it. */
         val explanation: String = "",
         val explanationReview: StoryAnswerReview? = null,
@@ -108,15 +115,27 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
         val listening: Int? = null,
         val partial: String = "",
     ) {
+        val questions: List<StoryQuestion> get() = story?.body?.questionsFor(comprehensionLevel).orEmpty()
+        val questionsLoading: Boolean get() = comprehensionLevel in questionLevelsLoading
+        val questionsError: String? get() = questionErrors[comprehensionLevel]
+        val questionProgress: QuestionProgress
+            get() = progressByLevel[comprehensionLevel] ?: QuestionProgress(List(questions.size) { "" }, List(questions.size) { null })
+        val answers: List<String> get() = questionProgress.answers
+        val reviews: List<StoryAnswerReview?> get() = questionProgress.reviews
         val allReviewed: Boolean
             get() = explanationReview != null && reviews.isNotEmpty() && reviews.all { it != null }
+
+        fun withProgress(progress: QuestionProgress): Ui = copy(progressByLevel = progressByLevel + (comprehensionLevel to progress))
     }
 
-    private val _ui = MutableStateFlow(Ui(slow = app.settings.storySlow))
+    private val _ui = MutableStateFlow(Ui(slow = app.settings.storySlow, comprehensionLevel = app.settings.storyComprehensionLevel))
     val ui: StateFlow<Ui> = _ui
     private var storyId: Long? = null
     private var lookupJob: Job? = null
     private var searchJob: Job? = null
+    /** Translation and question requests may finish together; merge both into the latest body. */
+    private val bodyMutex = Mutex()
+    private var dictationId = 0
     private val speech = app.newSpeechInput()
     private val zh get() = app.languages.get("zh").javaLocale
 
@@ -154,8 +173,6 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
                     pages = pages,
                     sentencePage = sentencePage,
                     loading = false,
-                    answers = List(story.body.questions.size) { "" },
-                    reviews = List(story.body.questions.size) { null },
                 )
             }
         }
@@ -326,16 +343,15 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
         viewModelScope.launch {
             val texts = missing.map { StoryText.join(story.body.chunks[it].tokens) }
             val r = withContext(Dispatchers.IO) { runCatching { grader.translateSentences(story.title, texts) } }
-            val current = _ui.value.story
-            if (current == null || current.id != story.id) return@launch
             r.onSuccess { translations ->
-                val chunks = current.body.chunks.toMutableList()
-                missing.forEachIndexed { k, i ->
-                    translations.getOrNull(k)?.trim()?.takeIf { it.isNotEmpty() }?.let { chunks[i] = chunks[i].copy(en = it) }
+                updateBody(story.id) { current ->
+                    val chunks = current.chunks.toMutableList()
+                    missing.forEachIndexed { k, i ->
+                        translations.getOrNull(k)?.trim()?.takeIf { it.isNotEmpty() }?.let { chunks[i] = chunks[i].copy(en = it) }
+                    }
+                    current.copy(chunks = chunks)
                 }
-                val body = current.body.copy(chunks = chunks)
-                withContext(Dispatchers.IO) { app.stories.saveBody(current.id, body) }
-                _ui.update { it.copy(story = current.copy(body = body), translating = false) }
+                _ui.update { it.copy(translating = false) }
             }.onFailure { e ->
                 _ui.update { it.copy(translating = false, translateError = e.message ?: "Couldn't translate. Tap to try again.") }
             }
@@ -381,41 +397,62 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
 
     // ---- comprehension ---------------------------------------------------------------------------
 
+    fun setComprehensionLevel(level: ComprehensionLevel) {
+        if (level == _ui.value.comprehensionLevel || _ui.value.checking != null) return
+        stopDictation()
+        app.settings.storyComprehensionLevel = level
+        _ui.update { it.copy(comprehensionLevel = level, checkError = null) }
+        loadQuestions()
+    }
+
+    private suspend fun updateBody(id: Long, update: (StoryBody) -> StoryBody) = bodyMutex.withLock {
+        val current = _ui.value.story?.takeIf { it.id == id } ?: return@withLock
+        val body = update(current.body)
+        withContext(Dispatchers.IO) { app.stories.saveBody(id, body) }
+        _ui.update { u -> if (u.story?.id == id) u.copy(story = u.story.copy(body = body)) else u }
+    }
+
     fun loadQuestions() {
         val s = _ui.value
         val story = s.story ?: return
-        if (story.body.questions.isNotEmpty() || s.questionsLoading) return
+        if (s.questions.isNotEmpty() || s.questionsLoading) return
+        val level = s.comprehensionLevel
         val grader = app.graderOrNull()
         if (grader == null) {
-            _ui.update { it.copy(questionsError = "The questions come from Claude: ${StoryImporter.NO_CLAUDE.substringAfter(": ")}") }
+            _ui.update {
+                it.copy(questionErrors = it.questionErrors + (level to "The questions come from Claude: ${StoryImporter.NO_CLAUDE.substringAfter(": ")}"))
+            }
             return
         }
-        _ui.update { it.copy(questionsLoading = true, questionsError = null) }
+        _ui.update { it.copy(questionLevelsLoading = it.questionLevelsLoading + level, questionErrors = it.questionErrors - level) }
         viewModelScope.launch {
-            val r = withContext(Dispatchers.IO) { runCatching { grader.storyQuestions(story.title, story.plainText, story.level) } }
-            val current = _ui.value.story
-            if (current == null || current.id != story.id) return@launch
-            r.onSuccess { found ->
-                val questions = found.filter { it.question.isNotBlank() }.take(5)
-                val body = current.body.copy(questions = questions)
-                withContext(Dispatchers.IO) { app.stories.saveBody(current.id, body) }
+            val r = runCatching {
+                val questions = withContext(Dispatchers.IO) { grader.storyQuestions(story.title, story.plainText, story.level, level) }
+                updateBody(story.id) { it.withQuestions(level, questions) }
+            }
+            if (_ui.value.story?.id != story.id) return@launch
+            r.onSuccess {
                 _ui.update {
                     it.copy(
-                        story = current.copy(body = body),
-                        questionsLoading = false,
-                        answers = List(questions.size) { "" },
-                        reviews = List(questions.size) { null },
+                        questionLevelsLoading = it.questionLevelsLoading - level,
+                        progressByLevel = it.progressByLevel - level,
                     )
                 }
             }.onFailure { e ->
-                _ui.update { it.copy(questionsLoading = false, questionsError = e.message ?: "Claude couldn't write the questions.") }
+                _ui.update {
+                    it.copy(
+                        questionLevelsLoading = it.questionLevelsLoading - level,
+                        questionErrors = it.questionErrors + (level to (e.message ?: "Claude couldn't write the questions.")),
+                    )
+                }
             }
         }
     }
 
     fun onAnswer(index: Int, text: String) = _ui.update {
         if (index == EXPLANATION) it.copy(explanation = text, checkError = null)
-        else it.copy(answers = it.answers.toMutableList().also { a -> if (index in a.indices) a[index] = text }, checkError = null)
+        else it.withProgress(it.questionProgress.copy(answers = it.answers.toMutableList().also { a -> if (index in a.indices) a[index] = text }))
+            .copy(checkError = null)
     }
 
     /** Claude checks your answer to question [index] (or your explanation, [EXPLANATION]). */
@@ -424,7 +461,7 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
         val story = s.story ?: return
         val answer = (if (index == EXPLANATION) s.explanation else s.answers.getOrNull(index)).orEmpty().trim()
         if (answer.isEmpty() || s.checking != null) return
-        val question = if (index == EXPLANATION) null else story.body.questions.getOrNull(index)?.question ?: return
+        val question = if (index == EXPLANATION) null else s.questions.getOrNull(index)?.question ?: return
         val grader = app.graderOrNull()
         if (grader == null) {
             _ui.update { it.copy(checkError = index to StoryImporter.NO_CLAUDE) }
@@ -434,13 +471,14 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
         _ui.update { it.copy(checking = index, checkError = null) }
         viewModelScope.launch {
             val r = withContext(Dispatchers.IO) {
-                runCatching { grader.reviewStoryAnswer(story.title, story.plainText, story.level, question, answer) }
+                runCatching { grader.reviewStoryAnswer(story.title, story.plainText, story.level, question, answer, s.comprehensionLevel) }
             }
             _ui.update { u ->
                 r.fold(
                     { review ->
                         if (index == EXPLANATION) u.copy(checking = null, explanationReview = review)
-                        else u.copy(checking = null, reviews = u.reviews.toMutableList().also { if (index in it.indices) it[index] = review })
+                        else u.withProgress(u.questionProgress.copy(reviews = u.reviews.toMutableList().also { if (index in it.indices) it[index] = review }))
+                            .copy(checking = null)
                     },
                     { e -> u.copy(checking = null, checkError = index to (e.message ?: "Claude couldn't check it. Try again.")) },
                 )
@@ -454,22 +492,29 @@ class StoryViewModel(private val app: AppCore) : ViewModel() {
             stopDictation()
             return
         }
+        stopDictation()
         stopReading()
+        val request = ++dictationId
         _ui.update { it.copy(listening = index, partial = "", checkError = null) }
         speech.start(app.languages.get("zh").locale, object : SpeechInput.Listener {
-            override fun onPartial(text: String) = _ui.update { it.copy(partial = text) }
+            override fun onPartial(text: String) {
+                if (request == dictationId) _ui.update { it.copy(partial = text) }
+            }
             override fun onResults(candidates: List<String>) {
+                if (request != dictationId) return
                 _ui.update { it.copy(listening = null, partial = "") }
                 val current = if (index == EXPLANATION) _ui.value.explanation else _ui.value.answers.getOrNull(index).orEmpty()
-                onAnswer(index, current + candidates.first())
+                candidates.firstOrNull()?.let { onAnswer(index, current + it) }
             }
-            override fun onError(code: Int, message: String) =
-                _ui.update { it.copy(listening = null, partial = "", checkError = index to message) }
+            override fun onError(code: Int, message: String) {
+                if (request == dictationId) _ui.update { it.copy(listening = null, partial = "", checkError = index to message) }
+            }
         })
     }
 
     private fun stopDictation() {
         if (_ui.value.listening == null) return
+        dictationId++
         speech.stop()
         _ui.update { it.copy(listening = null, partial = "") }
     }
