@@ -130,7 +130,8 @@ fun ClaudeGrader.writeStory(
     val brief = if (nonfiction) {
         "Write an original short nonfiction text of about $chars Chinese characters on the topic. Pick one angle - an explainer, a news-style report or an opinion piece - " +
             "and one specific aspect of the topic that the titles to avoid haven't covered. Make it informative and natural, using the topic's everyday core vocabulary " +
-            "(the words someone reading a lot about it meets again and again). No fictional characters or plot. Use short paragraphs of 1-4 sentences."
+            "(the words someone reading a lot about it meets again and again). No fictional characters or plot. " +
+            "Don't invent specific statistics, quotes, names or events; keep facts general and well known. Use short paragraphs of 1-4 sentences."
     } else {
         "Write an original story of about $chars Chinese characters with a clear beginning, middle and end: characters, a small problem or surprise, and how it turns out. " +
             "Make it natural and engaging, not a textbook dialogue. Use short paragraphs of 1-4 sentences."

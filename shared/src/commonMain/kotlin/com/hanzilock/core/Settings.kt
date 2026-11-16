@@ -314,7 +314,8 @@ class Settings(private val prefs: Prefs) {
         storyLevel = storyLevel,
         storySlow = storySlow,
         storyComprehensionLevel = storyComprehensionLevel.name,
-        storyTopics = storyTopics,
+        // Null until this device has had topics, so a new or just-upgraded device doesn't send [] and wipe yours.
+        storyTopics = prefs.getString("story_topics", null)?.let { storyTopics },
     )
 
     /** Takes another device's newer [s] (keeping its time, so it isn't sent back as a change). */

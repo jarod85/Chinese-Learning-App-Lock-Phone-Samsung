@@ -143,5 +143,15 @@ class StoryComprehensionTest {
         assertEquals(listOf("教育"), core.settings.storyTopics)
         core.settings.applyShared(legacy.copy(storyTopics = listOf("AI")))
         assertEquals(listOf("AI"), core.settings.storyTopics)
+
+        // A device that just upgraded (or is new) and never had topics doesn't wipe yours when it next changes a setting.
+        val upgraded = AppCore(TestPlatform(tmp.newFolder("other")))
+        upgraded.settings.applyShared(legacy)
+        upgraded.settings.storySlow = !upgraded.settings.storySlow
+        core.settings.applyShared(upgraded.settings.shared())
+        assertEquals(listOf("AI"), core.settings.storyTopics)
+        // Removing your last topic still reaches your other devices.
+        core.settings.removeStoryTopic("AI")
+        assertEquals(emptyList<String>(), core.settings.shared().storyTopics)
     }
 }

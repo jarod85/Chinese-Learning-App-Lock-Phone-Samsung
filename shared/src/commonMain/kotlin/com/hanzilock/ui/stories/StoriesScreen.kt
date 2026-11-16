@@ -42,6 +42,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -54,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -285,10 +287,16 @@ private fun TopicChip(topic: String, onClick: () -> Unit, onLongClick: () -> Uni
     Surface(
         shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.secondaryContainer,
-        // Same 8dp vertical margin as AssistChip's touch target, so the chips line up.
-        modifier = Modifier.padding(vertical = 8.dp)
+        // 48dp touch target like AssistChip's, so the chips also line up.
+        modifier = Modifier.minimumInteractiveComponentSize()
             .clip(MaterialTheme.shapes.small)
-            .combinedClickable(onClickLabel = "New text", onLongClickLabel = "Remove topic", onClick = onClick, onLongClick = onLongClick),
+            .combinedClickable(
+                onClickLabel = "New text",
+                role = Role.Button,
+                onLongClickLabel = "Remove topic",
+                onLongClick = onLongClick,
+                onClick = onClick,
+            ),
     ) {
         Box(Modifier.heightIn(min = 32.dp).padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.CenterStart) {
             Text(
