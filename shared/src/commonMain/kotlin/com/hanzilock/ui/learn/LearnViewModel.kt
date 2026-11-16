@@ -41,14 +41,14 @@ class LearnViewModel(private val app: AppCore) : ViewModel() {
         val done: Boolean get() = answers.size >= SENTENCES
     }
 
-    private val _ui = MutableStateFlow(Ui())
+    private val _ui = MutableStateFlow(Ui(showReading = app.settings.learnShowReading))
     val ui: StateFlow<Ui> = _ui
     private var wordId: Long? = null
 
     fun start(id: Long) {
         if (wordId == id) return
         wordId = id
-        _ui.value = Ui()
+        _ui.value = Ui(showReading = app.settings.learnShowReading)
         viewModelScope.launch { loadLesson() }
     }
 
@@ -76,7 +76,11 @@ class LearnViewModel(private val app: AppCore) : ViewModel() {
 
     fun onInput(text: String) = _ui.update { it.copy(input = text, checkError = null) }
 
-    fun toggleReading() = _ui.update { it.copy(showReading = !it.showReading) }
+    fun toggleReading() {
+        val show = !_ui.value.showReading
+        app.settings.learnShowReading = show
+        _ui.update { it.copy(showReading = show) }
+    }
 
     /** Sends your sentence to Claude. Right or wrong, it counts towards the lesson's sentences. */
     fun submit() {
