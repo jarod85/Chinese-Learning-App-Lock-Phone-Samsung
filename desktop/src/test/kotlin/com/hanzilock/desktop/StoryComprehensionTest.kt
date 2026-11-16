@@ -118,4 +118,30 @@ class StoryComprehensionTest {
         core.settings.applyShared(oldSettings.copy(storyComprehensionLevel = "UNKNOWN"))
         assertEquals(ComprehensionLevel.INFERENTIAL, core.settings.storyComprehensionLevel)
     }
+
+    @Test
+    fun storyTopicsAreTrimmedDedupedAndPersist() {
+        val dir = tmp.newFolder("device")
+        val core = AppCore(TestPlatform(dir))
+        assertEquals(emptyList<String>(), core.settings.storyTopics)
+        core.settings.addStoryTopic("  AI  ")
+        core.settings.addStoryTopic("ai")
+        core.settings.addStoryTopic("   ")
+        core.settings.addStoryTopic("Second-language\nacquisition")
+        assertEquals(listOf("AI", "Second-language acquisition"), core.settings.storyTopics)
+        core.settings.removeStoryTopic("AI")
+        assertEquals(listOf("Second-language acquisition"), AppCore(TestPlatform(dir)).settings.storyTopics)
+    }
+
+    @Test
+    fun storyTopicsSyncButOlderDevicesDoNotWipeThem() {
+        val core = AppCore(TestPlatform(tmp.newFolder("device")))
+        core.settings.addStoryTopic("教育")
+        val json = AppJson.encodeToString(Settings.Shared.serializer(), core.settings.shared())
+        val legacy = AppJson.decodeFromString<Settings.Shared>(JsonObject(AppJson.parseToJsonElement(json).jsonObject - "storyTopics").toString())
+        core.settings.applyShared(legacy)
+        assertEquals(listOf("教育"), core.settings.storyTopics)
+        core.settings.applyShared(legacy.copy(storyTopics = listOf("AI")))
+        assertEquals(listOf("AI"), core.settings.storyTopics)
+    }
 }
