@@ -185,7 +185,7 @@ class Settings(private val prefs: Prefs) {
 
     // ---- stories ----------------------------------------------------------------------------------
 
-    /** HSK level of the last story Claude wrote for you (0 = not chosen yet). */
+    /** HSK level of the last story Claude wrote for you, or picked for narrow reading (0 = not chosen yet). */
     var storyLevel: Int
         get() = prefs.getInt("story_level", 0)
         set(v) = editShared { putInt("story_level", v) }

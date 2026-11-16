@@ -91,10 +91,11 @@ fun StoriesScreen(nav: Navigator, snackbar: SnackbarHostState) {
     val stories by produceState<List<StorySummary>?>(null, version) {
         value = withContext(Dispatchers.IO) { app.stories.list() }
     }
-    val defaultLevel by produceState(app.settings.storyLevel.takeIf { it in 1..6 } ?: 1) {
-        if (app.settings.storyLevel !in 1..6) value = withContext(Dispatchers.IO) { highestHskLevel(app) }
-    }
     val settingsVersion by app.settings.changes.collectAsStateWithLifecycle()
+    // Follows the setting, so a level picked here or in the write dialog (or on your other device) shows at once.
+    val defaultLevel by produceState(app.settings.storyLevel.takeIf { it in 1..6 } ?: 1, settingsVersion) {
+        value = app.settings.storyLevel.takeIf { it in 1..6 } ?: withContext(Dispatchers.IO) { highestHskLevel(app) }
+    }
     val topics = remember(settingsVersion) { app.settings.storyTopics }
     var writing by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
@@ -116,6 +117,7 @@ fun StoriesScreen(nav: Navigator, snackbar: SnackbarHostState) {
                 NarrowReadingCard(
                     topics = topics,
                     level = defaultLevel,
+                    onLevel = { app.settings.storyLevel = it },
                     onRead = { t ->
                         launcher.run("Claude is writing about $t…") {
                             app.storyImporter.write(defaultLevel, StoryLength.MEDIUM, t, app.settings.storyComprehensionLevel, nonfiction = true)
@@ -249,6 +251,7 @@ private fun NewStoryCard(onWrite: () -> Unit, onBrowse: () -> Unit, onAdd: () ->
 private fun NarrowReadingCard(
     topics: List<String>,
     level: Int,
+    onLevel: (Int) -> Unit,
     onRead: (String) -> Unit,
     onAdd: () -> Unit,
     onRemove: (String) -> Unit,
@@ -270,8 +273,12 @@ private fun NarrowReadingCard(
                 )
             }
             if (topics.isNotEmpty()) {
+                Text("Level", style = MaterialTheme.typography.labelLarge)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    (1..6).forEach { n -> FilterChip(selected = level == n, onClick = { onLevel(n) }, label = { Text("HSK $n") }) }
+                }
                 Text(
-                    "HSK $level · medium length · press and hold a topic to remove it",
+                    "Medium length · press and hold a topic to remove it",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
