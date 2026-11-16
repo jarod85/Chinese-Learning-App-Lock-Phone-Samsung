@@ -119,6 +119,11 @@ class Settings(private val prefs: Prefs) {
         get() = prefs.getBoolean("allow_meaning_override", true)
         set(v) = editShared { putBoolean("allow_meaning_override", v) }
 
+    /** Learning mode shows pinyin (or the language's reading) under sentences; remembered from word to word. */
+    var learnShowReading: Boolean
+        get() = prefs.getBoolean("learn_show_reading", true)
+        set(v) = edit { putBoolean("learn_show_reading", v) }
+
     /** The set last chosen for endless practice in [lang] (0 = none). Set ids differ per device, so not shared. */
     fun endlessSetId(lang: String): Long = prefs.getLong("endless_set_$lang", 0L)
 
