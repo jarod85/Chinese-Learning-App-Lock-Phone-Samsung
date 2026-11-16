@@ -118,4 +118,40 @@ class StoryComprehensionTest {
         core.settings.applyShared(oldSettings.copy(storyComprehensionLevel = "UNKNOWN"))
         assertEquals(ComprehensionLevel.INFERENTIAL, core.settings.storyComprehensionLevel)
     }
+
+    @Test
+    fun storyTopicsAreTrimmedDedupedAndPersist() {
+        val dir = tmp.newFolder("device")
+        val core = AppCore(TestPlatform(dir))
+        assertEquals(emptyList<String>(), core.settings.storyTopics)
+        core.settings.addStoryTopic("  AI  ")
+        core.settings.addStoryTopic("ai")
+        core.settings.addStoryTopic("   ")
+        core.settings.addStoryTopic("Second-language\nacquisition")
+        assertEquals(listOf("AI", "Second-language acquisition"), core.settings.storyTopics)
+        core.settings.removeStoryTopic("AI")
+        assertEquals(listOf("Second-language acquisition"), AppCore(TestPlatform(dir)).settings.storyTopics)
+    }
+
+    @Test
+    fun storyTopicsSyncButOlderDevicesDoNotWipeThem() {
+        val core = AppCore(TestPlatform(tmp.newFolder("device")))
+        core.settings.addStoryTopic("教育")
+        val json = AppJson.encodeToString(Settings.Shared.serializer(), core.settings.shared())
+        val legacy = AppJson.decodeFromString<Settings.Shared>(JsonObject(AppJson.parseToJsonElement(json).jsonObject - "storyTopics").toString())
+        core.settings.applyShared(legacy)
+        assertEquals(listOf("教育"), core.settings.storyTopics)
+        core.settings.applyShared(legacy.copy(storyTopics = listOf("AI")))
+        assertEquals(listOf("AI"), core.settings.storyTopics)
+
+        // A device that just upgraded (or is new) and never had topics doesn't wipe yours when it next changes a setting.
+        val upgraded = AppCore(TestPlatform(tmp.newFolder("other")))
+        upgraded.settings.applyShared(legacy)
+        upgraded.settings.storySlow = !upgraded.settings.storySlow
+        core.settings.applyShared(upgraded.settings.shared())
+        assertEquals(listOf("AI"), core.settings.storyTopics)
+        // Removing your last topic still reaches your other devices.
+        core.settings.removeStoryTopic("AI")
+        assertEquals(emptyList<String>(), core.settings.shared().storyTopics)
+    }
 }

@@ -1,7 +1,10 @@
 package com.hanzilock.ui.stories
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -10,17 +13,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
@@ -33,8 +39,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -46,6 +54,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -84,8 +94,12 @@ fun StoriesScreen(nav: Navigator, snackbar: SnackbarHostState) {
     val defaultLevel by produceState(app.settings.storyLevel.takeIf { it in 1..6 } ?: 1) {
         if (app.settings.storyLevel !in 1..6) value = withContext(Dispatchers.IO) { highestHskLevel(app) }
     }
+    val settingsVersion by app.settings.changes.collectAsStateWithLifecycle()
+    val topics = remember(settingsVersion) { app.settings.storyTopics }
     var writing by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
+    var addingTopic by remember { mutableStateOf(false) }
+    var removingTopic by remember { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<StorySummary?>(null) }
     val launcher = rememberStoryLauncher(nav, snackbar)
 
@@ -96,6 +110,19 @@ fun StoriesScreen(nav: Navigator, snackbar: SnackbarHostState) {
                     onWrite = { writing = true },
                     onBrowse = { nav.go(Route.StoryBrowse) },
                     onAdd = { adding = true },
+                )
+            }
+            item {
+                NarrowReadingCard(
+                    topics = topics,
+                    level = defaultLevel,
+                    onRead = { t ->
+                        launcher.run("Claude is writing about $t…") {
+                            app.storyImporter.write(defaultLevel, StoryLength.MEDIUM, t, app.settings.storyComprehensionLevel, nonfiction = true)
+                        }
+                    },
+                    onAdd = { addingTopic = true },
+                    onRemove = { removingTopic = it },
                 )
             }
             val list = stories
@@ -140,6 +167,29 @@ fun StoriesScreen(nav: Navigator, snackbar: SnackbarHostState) {
                 adding = false
                 launcher.run("Loading the story…") { importStory(app, input) }
             },
+        )
+    }
+    if (addingTopic) {
+        AddTopicDialog(
+            onDismiss = { addingTopic = false },
+            onAdd = { t ->
+                addingTopic = false
+                app.settings.addStoryTopic(t)
+            },
+        )
+    }
+    removingTopic?.let { t ->
+        AlertDialog(
+            onDismissRequest = { removingTopic = null },
+            title = { Text("Remove \"$t\"?") },
+            text = { Text("The topic is removed from narrow reading. Texts you already have stay in your list.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    removingTopic = null
+                    app.settings.removeStoryTopic(t)
+                }) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { removingTopic = null }) { Text("Cancel") } },
         )
     }
     deleting?.let { s ->
@@ -191,6 +241,101 @@ private fun NewStoryCard(onWrite: () -> Unit, onBrowse: () -> Unit, onAdd: () ->
             )
         }
     }
+}
+
+/** Your topics; tapping one gets a new text on it, so the topic's words keep coming back. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun NarrowReadingCard(
+    topics: List<String>,
+    level: Int,
+    onRead: (String) -> Unit,
+    onAdd: () -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    Card(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Narrow reading", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Read text after text on one topic, so its words keep coming back. " +
+                    if (topics.isEmpty()) "Add any topic you want to read about." else "Tap a topic for a new text.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                topics.forEach { t -> TopicChip(t, onClick = { onRead(t) }, onLongClick = { onRemove(t) }) }
+                AssistChip(
+                    onClick = onAdd,
+                    label = { Text("Add topic") },
+                    leadingIcon = { Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                )
+            }
+            if (topics.isNotEmpty()) {
+                Text(
+                    "HSK $level · medium length · press and hold a topic to remove it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** A chip that also takes a long press (Material chips only take a click). */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun TopicChip(topic: String, onClick: () -> Unit, onLongClick: () -> Unit) {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        // 48dp touch target like AssistChip's, so the chips also line up.
+        modifier = Modifier.minimumInteractiveComponentSize()
+            .clip(MaterialTheme.shapes.small)
+            .combinedClickable(
+                onClickLabel = "New text",
+                role = Role.Button,
+                onLongClickLabel = "Remove topic",
+                onLongClick = onLongClick,
+                onClick = onClick,
+            ),
+    ) {
+        Box(Modifier.heightIn(min = 32.dp).padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.CenterStart) {
+            Text(
+                topic,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AddTopicDialog(onDismiss: () -> Unit, onAdd: (String) -> Unit) {
+    var topic by rememberSaveable { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add a topic") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = topic,
+                    onValueChange = { topic = it },
+                    label = { Text("Topic") },
+                    placeholder = { Text("AI, education, football…") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Any subject, in English or Chinese. Claude writes short nonfiction texts on it at your level.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { onAdd(topic) }, enabled = topic.isNotBlank()) { Text("Add") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

@@ -200,6 +200,21 @@ class Settings(private val prefs: Prefs) {
         get() = enumOr(prefs.getString("story_comprehension_level", null), ComprehensionLevel.INFERENTIAL)
         set(v) = editShared { putString("story_comprehension_level", v.name) }
 
+    /** Your topics for narrow reading (anything you typed), in the order you added them. */
+    var storyTopics: List<String>
+        get() = prefs.getString("story_topics", null)?.split('\n')?.filter { it.isNotBlank() }.orEmpty()
+        set(v) = editShared { putString("story_topics", v.joinToString("\n")) }
+
+    /** Adds [topic] once (ignoring case); line breaks and repeated spaces become one space. */
+    fun addStoryTopic(topic: String) {
+        val t = topic.replace(Regex("\\s+"), " ").trim()
+        if (t.isNotEmpty() && storyTopics.none { it.equals(t, ignoreCase = true) }) storyTopics = storyTopics + t
+    }
+
+    fun removeStoryTopic(topic: String) {
+        storyTopics = storyTopics - topic
+    }
+
     // ---- misc -----------------------------------------------------------------------------------
 
     /** Only used to migrate installs from before word sets existed. */
@@ -277,6 +292,8 @@ class Settings(private val prefs: Prefs) {
         val storyLevel: Int,
         val storySlow: Boolean,
         val storyComprehensionLevel: String = ComprehensionLevel.INFERENTIAL.name,
+        /** Null from devices whose app predates narrow reading: their sync keeps your topics. */
+        val storyTopics: List<String>? = null,
     )
 
     fun shared() = Shared(
@@ -297,6 +314,8 @@ class Settings(private val prefs: Prefs) {
         storyLevel = storyLevel,
         storySlow = storySlow,
         storyComprehensionLevel = storyComprehensionLevel.name,
+        // Null until this device has had topics, so a new or just-upgraded device doesn't send [] and wipe yours.
+        storyTopics = prefs.getString("story_topics", null)?.let { storyTopics },
     )
 
     /** Takes another device's newer [s] (keeping its time, so it isn't sent back as a change). */
@@ -317,6 +336,7 @@ class Settings(private val prefs: Prefs) {
         putInt("story_level", s.storyLevel)
         putBoolean("story_slow", s.storySlow)
         putString("story_comprehension_level", s.storyComprehensionLevel)
+        s.storyTopics?.let { putString("story_topics", it.joinToString("\n")) }
         putLong("shared_settings_at", s.at)
     }
 
