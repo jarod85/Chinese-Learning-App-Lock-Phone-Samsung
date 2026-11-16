@@ -98,13 +98,17 @@ private fun questionRules(level: String?, comprehension: ComprehensionLevel): St
     """.trimIndent()
 }
 
-/** A new story in simplified Chinese at HSK [level], with sentence translations and 3 questions. */
+/**
+ * A new story in simplified Chinese at HSK [level], with sentence translations and 3 questions.
+ * With [nonfiction], a short nonfiction text on [topic] instead (narrow reading).
+ */
 fun ClaudeGrader.writeStory(
     level: Int,
     length: StoryLength,
     topic: String,
     avoidTitles: List<String>,
     comprehension: ComprehensionLevel = ComprehensionLevel.INFERENTIAL,
+    nonfiction: Boolean = false,
 ): WrittenStory {
     val chars = ((STORY_CHARS[level] ?: 400) * length.factor).toInt()
     val sentence = mapOf(
@@ -123,11 +127,19 @@ fun ClaudeGrader.writeStory(
         "additionalProperties" to false,
     )
     val subject = topic.trim().ifEmpty { "your choice; this time make it ${GENRES.random()}" }
+    val brief = if (nonfiction) {
+        "Write an original short nonfiction text of about $chars Chinese characters on the topic. Pick one angle - an explainer, a news-style report or an opinion piece - " +
+            "and one specific aspect of the topic that the titles to avoid haven't covered. Make it informative and natural, using the topic's everyday core vocabulary " +
+            "(the words someone reading a lot about it meets again and again). No fictional characters or plot. Use short paragraphs of 1-4 sentences."
+    } else {
+        "Write an original story of about $chars Chinese characters with a clear beginning, middle and end: characters, a small problem or surprise, and how it turns out. " +
+            "Make it natural and engaging, not a textbook dialogue. Use short paragraphs of 1-4 sentences."
+    }
     val text = ask(
         system = """
-            You write graded reading stories in simplified Chinese for a learner at HSK $level.
-            Vocabulary: mostly words from HSK 1 to HSK $level, with at most a handful of harder words, only where the story needs them. Grammar and sentence length must suit HSK $level${if (level <= 2) " - keep sentences short and simple" else ""}.
-            Write an original story of about $chars Chinese characters with a clear beginning, middle and end: characters, a small problem or surprise, and how it turns out. Make it natural and engaging, not a textbook dialogue. Use short paragraphs of 1-4 sentences.
+            You write graded reading ${if (nonfiction) "texts" else "stories"} in simplified Chinese for a learner at HSK $level.
+            Vocabulary: mostly words from HSK 1 to HSK $level, with at most a handful of harder words, only where the ${if (nonfiction) "text" else "story"} needs them. Grammar and sentence length must suit HSK $level${if (level <= 2) " - keep sentences short and simple" else ""}.
+            $brief
             Split every paragraph into its sentences. text: the sentence in simplified Chinese with a space between words, punctuation included (for example "我 每天 学习 汉语 。"); en: a natural English translation of that sentence.
             title: a short Chinese title in simplified Chinese, without spaces; title_en: the title in English.
             ${questionRules("HSK $level", comprehension)}
