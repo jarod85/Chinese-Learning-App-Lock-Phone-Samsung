@@ -101,15 +101,18 @@ fun SetsScreen(nav: Navigator, snackbar: SnackbarHostState) {
                     SetsSyncRow()
                 }
                 items(sets, key = { it.id }) { set ->
-                    SetRow(
-                        set = set,
-                        onOpen = { nav.go(Route.SetWords(set.id, set.name)) },
-                        onToggle = { on -> scope.launch(Dispatchers.IO) { app.words.setSetEnabled(set.id, on) } },
-                        onRename = { renaming = set },
-                        onExport = { export(set) },
-                        onDelete = { deleting = set },
-                    )
-                    HorizontalDivider()
+                    // A set you add or delete fades in or out; the others slide to make room.
+                    Column(Modifier.animateItem()) {
+                        SetRow(
+                            set = set,
+                            onOpen = { nav.go(Route.SetWords(set.id, set.name)) },
+                            onToggle = { on -> scope.launch(Dispatchers.IO) { app.words.setSetEnabled(set.id, on) } },
+                            onRename = { renaming = set },
+                            onExport = { export(set) },
+                            onDelete = { deleting = set },
+                        )
+                        HorizontalDivider()
+                    }
                 }
                 item {
                     Card(

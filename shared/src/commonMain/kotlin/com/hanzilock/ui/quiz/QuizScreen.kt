@@ -1,6 +1,12 @@
 package com.hanzilock.ui.quiz
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,12 +45,16 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ProgressIndicatorDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -67,7 +78,11 @@ import com.hanzilock.platform.LocalAppCore
 import com.hanzilock.platform.LocalPlatformUi
 import com.hanzilock.quiz.SentenceTiles
 import com.hanzilock.ui.common.AppIcons
+import com.hanzilock.ui.common.MotionContent
 import com.hanzilock.ui.common.SpeakButton
+import com.hanzilock.ui.common.axisDistance
+import com.hanzilock.ui.common.fadeThrough
+import com.hanzilock.ui.common.sharedAxisY
 import com.hanzilock.ui.common.formatTime
 import com.hanzilock.ui.common.rememberMicAction
 import com.hanzilock.ui.learn.LearnContent
@@ -87,17 +102,18 @@ fun QuizContent(vm: QuizViewModel, onDone: () -> Unit, modifier: Modifier = Modi
     var learning by rememberSaveable { mutableStateOf<Long?>(null) }
     val learnId = learning.takeIf { ui.phase == Phase.QUIZ }
     LocalPlatformUi.current.BackHandler(enabled = learnId != null) { learning = null }
-    Box(modifier.fillMaxSize()) {
-        if (learnId != null) {
-            Column(Modifier.fillMaxSize()) {
+    // Loading, the quiz, learning mode and the summary fade through one another.
+    // (No size animation: these fill the space, which changes as the keyboard comes and goes.)
+    MotionContent<Any>(learnId ?: ui.phase, modifier.fillMaxSize(), transitionSpec = { fadeThrough() using null }, label = "quiz") { shown ->
+        when (shown) {
+            is Long -> Column(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Learning mode · not graded", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
                     TextButton(onClick = { learning = null }) { Text("Back to the quiz") }
                 }
-                LearnContent(learnId, onClose = { learning = null }, modifier = Modifier.weight(1f))
+                LearnContent(shown, onClose = { learning = null }, modifier = Modifier.weight(1f))
             }
-        } else when (ui.phase) {
-            Phase.LOADING -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+            Phase.LOADING -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             Phase.NO_WORDS -> Message(
                 title = "No words to practise",
                 body = noWordsBody ?: "Turn on a word set (Home > Sets) or add your own words, and practice will start from them.",
@@ -105,11 +121,14 @@ fun QuizContent(vm: QuizViewModel, onDone: () -> Unit, modifier: Modifier = Modi
                 onClick = onDone,
             )
             Phase.SUMMARY -> Summary(ui.summary, onDone)
-            Phase.CLOSED -> Unit
             Phase.QUIZ -> WordQuiz(ui, vm, onLearn = { learning = it })
+            else -> Unit // closed
         }
     }
 }
+
+/** What the step area shows; the step leaving keeps its own word and result while it fades out. */
+private data class Shown(val step: Step, val word: Word, val result: QuizViewModel.ResultUi?)
 
 @Composable
 private fun WordQuiz(ui: QuizViewModel.Ui, vm: QuizViewModel, onLearn: (Long) -> Unit) {
@@ -124,11 +143,15 @@ private fun WordQuiz(ui: QuizViewModel.Ui, vm: QuizViewModel, onLearn: (Long) ->
         SessionProgress(ui)
         WordCard(word, ui, vm)
         StepChips(ui)
-        when (ui.step) {
-            Step.PRONUNCIATION -> PronunciationStep(ui, vm)
-            Step.MEANING -> MeaningStep(ui, vm)
-            Step.SENTENCE -> SentenceStep(ui, vm, word)
-            Step.RESULT -> ResultStep(ui, vm, word, onLearn = { onLearn(word.id) })
+        // Each step rises into place as the last one fades; what's below moves with the height.
+        val axis = axisDistance()
+        MotionContent(Shown(ui.step, word, ui.result), transitionSpec = { sharedAxisY(axis) }, label = "step") { shown ->
+            when (shown.step) {
+                Step.PRONUNCIATION -> PronunciationStep(ui, vm)
+                Step.MEANING -> MeaningStep(ui, vm)
+                Step.SENTENCE -> SentenceStep(ui, vm, shown.word)
+                Step.RESULT -> shown.result?.let { ResultStep(ui, it, vm, shown.word, onLearn = { onLearn(shown.word.id) }) }
+            }
         }
         ui.note?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -162,8 +185,9 @@ private fun SessionProgress(ui: QuizViewModel.Ui) {
             Text("✗ ${s.losses}", color = LossColor, style = MaterialTheme.typography.labelLarge)
         }
         if (!s.endless) {
+            val progress by animateFloatAsState(done.toFloat() / s.target.coerceAtLeast(1), ProgressIndicatorDefaults.ProgressAnimationSpec, label = "progress")
             Spacer(Modifier.height(6.dp))
-            LinearProgressIndicator(progress = { done.toFloat() / s.target.coerceAtLeast(1) }, modifier = Modifier.fillMaxWidth())
+            LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -171,16 +195,19 @@ private fun SessionProgress(ui: QuizViewModel.Ui) {
 @Composable
 private fun WordCard(word: Word, ui: QuizViewModel.Ui, vm: QuizViewModel) {
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-        Column(Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(word.term, style = termStyle(wordDisplaySize(word.term, ui.language?.cjk != false), ui.language?.locale), color = MaterialTheme.colorScheme.onPrimaryContainer, textAlign = TextAlign.Center)
-            word.traditional?.let {
-                Text(it, style = termStyle(20, ui.language?.locale), color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-            }
-            // Pinyin and audio stay hidden until the pronunciation step is over.
-            if ((Step.PRONUNCIATION in ui.passed || ui.step == Step.RESULT) && word.reading.isNotBlank()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(word.readingDisplay, style = termStyle(22, ui.language?.locale), color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    SpeakButton(onClick = { vm.speak(word.term, slow = true) })
+        // The next word fades through this one; the card keeps its place.
+        MotionContent(word, label = "word") { w ->
+            Column(Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(w.term, style = termStyle(wordDisplaySize(w.term, ui.language?.cjk != false), ui.language?.locale), color = MaterialTheme.colorScheme.onPrimaryContainer, textAlign = TextAlign.Center)
+                w.traditional?.let {
+                    Text(it, style = termStyle(20, ui.language?.locale), color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                }
+                // Pinyin and audio stay hidden until the pronunciation step is over, then unfold.
+                AnimatedVisibility((Step.PRONUNCIATION in ui.passed || ui.step == Step.RESULT) && w.reading.isNotBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(w.readingDisplay, style = termStyle(22, ui.language?.locale), color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        SpeakButton(onClick = { vm.speak(w.term, slow = true) })
+                    }
                 }
             }
         }
@@ -194,13 +221,15 @@ private fun StepChips(ui: QuizViewModel.Ui) {
             val passed = step in ui.passed
             val current = ui.step == step
             val failedHere = ui.step == Step.RESULT && ui.result?.win == false && ui.result.failedPart?.toStep() == step
-            val bg = when {
+            val target = when {
                 failedHere -> LossColor.copy(alpha = 0.15f)
                 passed -> WinColor.copy(alpha = 0.15f)
                 current -> MaterialTheme.colorScheme.secondaryContainer
                 else -> MaterialTheme.colorScheme.surfaceVariant
             }
-            Surface(color = bg, shape = RoundedCornerShape(50)) {
+            val bg by animateColorAsState(target, label = "chip")
+            // The text colour follows where the chip is going, not the colours it passes through.
+            Surface(color = bg, contentColor = contentColorFor(target), shape = RoundedCornerShape(50)) {
                 Text(
                     (if (passed) "✓ " else if (failedHere) "✗ " else "") + label,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -362,7 +391,7 @@ private fun TileBuilder(ui: QuizViewModel.Ui, vm: QuizViewModel) {
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
+        modifier = Modifier.fillMaxWidth().animateContentSize().heightIn(min = 64.dp),
     ) {
         FlowRow(Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             if (ui.picked.isEmpty()) Text("Tap the words below in the right order", modifier = Modifier.padding(8.dp))
@@ -393,15 +422,20 @@ private fun Tile(text: String, locale: String?, filled: Boolean, onClick: () -> 
 }
 
 @Composable
-private fun ResultStep(ui: QuizViewModel.Ui, vm: QuizViewModel, word: Word, onLearn: () -> Unit) {
+private fun ResultStep(ui: QuizViewModel.Ui, r: QuizViewModel.ResultUi, vm: QuizViewModel, word: Word, onLearn: () -> Unit) {
     val claudeKey = LocalAppCore.current.settings.claudeApiKey.isNotBlank()
-    val r = ui.result ?: return
+    // The verdict lands with a pop: a little bounce for a win, none for a miss.
+    val pop = remember { Animatable(0.5f) }
+    LaunchedEffect(Unit) {
+        pop.animateTo(1f, spring(dampingRatio = if (r.win) 0.45f else 1f, stiffness = Spring.StiffnessMediumLow))
+    }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (r.skipped) {
             Text("Skipped - not scored. Here's the answer; another word takes its place.", style = MaterialTheme.typography.titleMedium)
         } else Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.size(36.dp).clip(CircleShape).background(if (r.win) WinColor else LossColor),
+                Modifier.size(36.dp).graphicsLayer { scaleX = pop.value; scaleY = pop.value }
+                    .clip(CircleShape).background(if (r.win) WinColor else LossColor),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(if (r.win) Icons.Default.Check else Icons.Default.Close, contentDescription = null, tint = Color.White)

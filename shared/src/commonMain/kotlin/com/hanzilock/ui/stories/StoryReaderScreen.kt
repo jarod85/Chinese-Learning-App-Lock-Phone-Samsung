@@ -1,5 +1,6 @@
 package com.hanzilock.ui.stories
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -232,7 +233,8 @@ private fun Reader(nav: Navigator, vm: StoryViewModel, ui: StoryViewModel.Ui, st
                     },
                 ) {
                     Column(Modifier.fillMaxSize()) {
-                        if (onStoryPage) {
+                        // Folds away on the questions page instead of making the page jump.
+                        AnimatedVisibility(onStoryPage) {
                             ReadingPanel(ui, pager.currentPage, vm, addWord, Modifier.fillMaxWidth().fillMaxHeight(0.3f))
                         }
                         HorizontalPager(state = pager, modifier = Modifier.weight(1f).fillMaxWidth()) { page ->

@@ -1,5 +1,9 @@
 package com.hanzilock.ui.main
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -9,13 +13,14 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -65,7 +70,13 @@ import com.hanzilock.platform.LocalAppCore
 import com.hanzilock.platform.LocalPlatformUi
 import com.hanzilock.platform.PickedFile
 import com.hanzilock.ui.common.AppIcons
+import com.hanzilock.ui.common.EmphasizedAccelerate
+import com.hanzilock.ui.common.EmphasizedDecelerate
+import com.hanzilock.ui.common.MotionContent
 import com.hanzilock.ui.common.PinDialog
+import com.hanzilock.ui.common.axisDistance
+import com.hanzilock.ui.common.fadeThrough
+import com.hanzilock.ui.common.sharedAxisX
 import com.hanzilock.ui.stories.StoriesScreen
 import com.hanzilock.ui.stories.StoryBrowseScreen
 import com.hanzilock.ui.stories.StoryInputDialog
@@ -188,8 +199,15 @@ fun AppRoot(
             bottomBar = {
                 if (!wide) {
                     Column {
-                        if (showTutor) TutorBar(tutor, if (showTabs) Modifier else Modifier.navigationBarsPadding())
-                        if (showTabs) TabBar(nav, ::openTab)
+                        if (showTutor) TutorBar(tutor)
+                        // The tabs slide away under a screen you open from them (down to the system's navigation bar), and back with it.
+                        Column(Modifier.heightIn(min = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding())) {
+                            AnimatedVisibility(
+                                showTabs,
+                                enter = expandVertically(tween(300, easing = EmphasizedDecelerate), expandFrom = Alignment.Top),
+                                exit = shrinkVertically(tween(200, easing = EmphasizedAccelerate), shrinkTowards = Alignment.Top),
+                            ) { TabBar(nav, ::openTab) }
+                        }
                     }
                 }
             },
@@ -200,7 +218,7 @@ fun AppRoot(
             ) {
                 if (wide && app.pin.isSet) SideBar(nav, ::openTab)
                 Box(Modifier.weight(1f).fillMaxHeight().imePadding(), contentAlignment = Alignment.TopCenter) {
-                    Box(Modifier.widthIn(max = CONTENT_WIDTH).fillMaxSize()) { Screen(nav, current, snackbar) }
+                    Box(Modifier.widthIn(max = CONTENT_WIDTH).fillMaxSize()) { Screens(nav, snackbar) }
                 }
             }
         }
@@ -269,6 +287,25 @@ private fun SideBar(nav: Navigator, onTab: (Tab) -> Unit) {
             )
         }
     }
+}
+
+/** A screen and where it sits: which tab it was opened from and how deep, so moving between them can show which way you went. */
+private data class Shown(val route: Route, val tab: Route, val depth: Int)
+
+@Composable
+private fun Screens(nav: Navigator, snackbar: SnackbarHostState) {
+    val axis = axisDistance()
+    MotionContent(
+        Shown(nav.current, nav.stack.first(), nav.stack.size),
+        transitionSpec = {
+            val (_, tab, depth) = targetState
+            val move = if (tab != initialState.tab || depth == initialState.depth) fadeThrough()
+            else sharedAxisX(forward = depth > initialState.depth, axis)
+            // Screens always fill the space; animating its size would lag behind the tabs folding in and shift the screen.
+            move using null
+        },
+        label = "screen",
+    ) { Screen(nav, it.route, snackbar) }
 }
 
 @Composable
