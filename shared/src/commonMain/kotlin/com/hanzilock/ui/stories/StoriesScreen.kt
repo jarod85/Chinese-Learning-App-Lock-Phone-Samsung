@@ -141,8 +141,11 @@ fun StoriesScreen(nav: Navigator, snackbar: SnackbarHostState) {
             } else if (list != null) {
                 item { SectionTitle("Your stories", Modifier.padding(horizontal = 16.dp)) }
                 items(list, key = { it.id }) { s ->
-                    StoryRow(s, onOpen = { nav.go(Route.StoryReader(s.id)) }, onDelete = { deleting = s })
-                    HorizontalDivider()
+                    // A story you add or delete fades in or out; the others slide to make room.
+                    Column(Modifier.animateItem()) {
+                        StoryRow(s, onOpen = { nav.go(Route.StoryReader(s.id)) }, onDelete = { deleting = s })
+                        HorizontalDivider()
+                    }
                 }
             }
         }
